@@ -1,13 +1,13 @@
 import { createClient } from "@supabase/supabase-js";
 
-import { getServerEnv } from "@/lib/env";
+import { getSupabaseAdminEnv } from "@/lib/env";
 
 let adminClient: any = null;
 
 export function getSupabaseAdminClient(): any {
   if (adminClient) return adminClient;
 
-  const env = getServerEnv();
+  const env = getSupabaseAdminEnv();
 
   adminClient = createClient(
     env.NEXT_PUBLIC_SUPABASE_URL,

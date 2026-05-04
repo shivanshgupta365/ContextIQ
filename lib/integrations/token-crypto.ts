@@ -1,9 +1,9 @@
 import { createCipheriv, createDecipheriv, createHash, randomBytes } from "node:crypto";
 
-import { getServerEnv } from "@/lib/env";
+import { getIntegrationCryptoEnv } from "@/lib/env";
 
 function getEncryptionKey() {
-  const env = getServerEnv();
+  const env = getIntegrationCryptoEnv();
   return createHash("sha256").update(env.INTEGRATION_TOKEN_SECRET).digest();
 }
 

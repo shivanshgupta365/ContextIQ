@@ -1,4 +1,4 @@
-import { getServerEnv } from "@/lib/env";
+import { getMicrosoftOAuthEnv } from "@/lib/env";
 import { fetchWithRetry } from "@/lib/integrations/http";
 
 interface GraphListMessagesResponse {
@@ -26,7 +26,7 @@ function formatRecipient(value: { address?: string; name?: string } | null | und
 }
 
 export async function refreshMicrosoftAccessToken(input: { refreshToken: string }) {
-  const env = getServerEnv();
+  const env = getMicrosoftOAuthEnv();
   if (!env.MICROSOFT_CLIENT_ID || !env.MICROSOFT_CLIENT_SECRET) {
     throw new Error("Missing MICROSOFT_CLIENT_ID / MICROSOFT_CLIENT_SECRET.");
   }
@@ -36,7 +36,7 @@ export async function refreshMicrosoftAccessToken(input: { refreshToken: string 
     client_secret: env.MICROSOFT_CLIENT_SECRET,
     grant_type: "refresh_token",
     refresh_token: input.refreshToken,
-    scope: "openid profile email offline_access Mail.Read User.Read",
+    scope: "openid profile email offline_access Mail.Read Calendars.Read User.Read",
   });
 
   const response = await fetchWithRetry(
@@ -125,6 +125,61 @@ export async function listOutlookMessages(input: { accessToken: string; maxResul
       toEmails,
     };
   });
+}
+
+interface GraphListEventsResponse {
+  value?: Array<{
+    id: string;
+    subject?: string;
+    start?: { dateTime?: string; timeZone?: string };
+    end?: { dateTime?: string; timeZone?: string };
+    isCancelled?: boolean;
+    attendees?: Array<{ emailAddress?: { address?: string; name?: string } }>;
+    webLink?: string;
+  }>;
+}
+
+export async function listOutlookCalendarEvents(input: {
+  accessToken: string;
+  maxResults: number;
+}) {
+  const query = new URLSearchParams({
+    "$top": String(Math.min(Math.max(input.maxResults, 1), 25)),
+    "$select": "id,subject,start,end,isCancelled,attendees,webLink",
+    "$orderby": "start/dateTime asc",
+  });
+
+  const response = await fetchWithRetry(
+    `https://graph.microsoft.com/v1.0/me/events?${query.toString()}`,
+    {
+      method: "GET",
+      headers: {
+        Authorization: `Bearer ${input.accessToken}`,
+      },
+      cache: "no-store",
+    },
+  );
+
+  if (!response.ok) {
+    const text = await response.text();
+    throw new Error(`Microsoft Graph events failed: ${response.status} ${text}`);
+  }
+
+  const data = (await response.json()) as GraphListEventsResponse;
+  return (data.value ?? []).map((event) => ({
+    id: event.id,
+    subject: event.subject ?? "Untitled event",
+    startsAt: event.start?.dateTime ?? null,
+    endsAt: event.end?.dateTime ?? null,
+    status: event.isCancelled ? "cancelled" : "confirmed",
+    attendeeEmails: (event.attendees ?? [])
+      .map((attendee) => attendee.emailAddress?.address?.toLowerCase() ?? null)
+      .filter(Boolean) as string[],
+    attendeeDisplay: (event.attendees ?? [])
+      .map((attendee) => formatRecipient(attendee.emailAddress))
+      .filter(Boolean) as string[],
+    webLink: event.webLink ?? null,
+  }));
 }
 
 export async function fetchMicrosoftProfile(input: { accessToken: string }) {

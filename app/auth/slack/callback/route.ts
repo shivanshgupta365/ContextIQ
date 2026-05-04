@@ -21,13 +21,13 @@ export async function GET(request: NextRequest) {
 
   if (error) {
     return NextResponse.redirect(
-      new URL(`/overview?integration=slack&status=error&message=${encodeURIComponent(error)}`, request.url),
+      new URL(`${safeNext}?integration=slack&status=error&message=${encodeURIComponent(error)}`, request.url),
     );
   }
 
   if (!code || !state || !expectedState || state !== expectedState) {
     return NextResponse.redirect(
-      new URL("/overview?integration=slack&status=error&message=slack_state_mismatch", request.url),
+      new URL(`${safeNext}?integration=slack&status=error&message=slack_state_mismatch`, request.url),
     );
   }
 
@@ -65,9 +65,10 @@ export async function GET(request: NextRequest) {
       workspaceId: workspace.id,
       userId,
       provider: "slack",
-      status: "connected",
+      status: token.userAccessToken ? "connected" : "error",
       permissionScope:
         "channels:history groups:history im:history mpim:history users:read channels:read groups:read im:read mpim:read",
+      lastError: token.userAccessToken ? null : "slack_user_token_missing",
     });
 
     const warning = identity ? null : "connected_with_identity_lookup_warning";
@@ -96,7 +97,7 @@ export async function GET(request: NextRequest) {
     }
     const message = callbackError instanceof Error ? callbackError.message : "Slack connect failed";
     return NextResponse.redirect(
-      new URL(`/overview?integration=slack&status=error&message=${encodeURIComponent(message)}`, request.url),
+      new URL(`${safeNext}?integration=slack&status=error&message=${encodeURIComponent(message)}`, request.url),
     );
   }
 }

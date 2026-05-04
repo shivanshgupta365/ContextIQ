@@ -57,7 +57,7 @@ export function AuthPage({
           provider: "azure",
           options: {
             redirectTo: `${window.location.origin}/auth/callback?intent=${intent}&provider=microsoft&next=${encodeURIComponent(returnTo)}`,
-            scopes: "openid profile email offline_access Mail.Read User.Read",
+            scopes: "openid profile email offline_access Mail.Read Calendars.Read User.Read",
           },
         });
 
@@ -106,8 +106,8 @@ export function AuthPage({
             {intent === "gmail_connect"
               ? "Grant Gmail read access so ContextIQ can sync inbox, archived, and starred email context."
               : intent === "outlook_connect"
-                ? "Grant Outlook mail read access so ContextIQ can sync Microsoft 365 email context."
-              : "Sign in with Google for full workspace access. Walk-in experience stays available."}
+                ? "Grant Outlook mail and calendar read access so ContextIQ can sync Microsoft 365 email and meeting context."
+                : "Sign in with Google for full workspace access. Walk-in experience stays available."}
           </p>
         </div>
 

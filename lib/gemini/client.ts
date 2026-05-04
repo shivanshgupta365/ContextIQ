@@ -1,4 +1,4 @@
-import { getServerEnv } from "@/lib/env";
+import { getGeminiEnv } from "@/lib/env";
 
 interface GeminiTextResponse {
   text: string;
@@ -6,7 +6,7 @@ interface GeminiTextResponse {
 }
 
 export async function generateGeminiText(prompt: string) {
-  const env = getServerEnv();
+  const env = getGeminiEnv();
   const url = `https://generativelanguage.googleapis.com/v1beta/models/${env.GEMINI_MODEL}:generateContent`;
 
   const response = await fetch(url, {

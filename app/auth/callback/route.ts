@@ -28,7 +28,7 @@ export async function GET(request: NextRequest) {
         },
         setAll(cookiesToSet) {
           cookiesToSet.forEach(({ name, value }) => request.cookies.set(name, value));
-          response = NextResponse.redirect(new URL("/overview", request.url));
+          response = NextResponse.redirect(new URL(safeNextPath, request.url));
           cookiesToSet.forEach(({ name, value, options }) =>
             response.cookies.set(name, value, options),
           );
@@ -73,8 +73,27 @@ export async function GET(request: NextRequest) {
 
   const providerToken = providerSession?.provider_token as string | undefined;
   const providerRefreshToken = providerSession?.provider_refresh_token as string | undefined;
+  const upsertProviderError = async (
+    integration: "gmail" | "outlook",
+    message: string,
+    permissionScope: string,
+  ) => {
+    await upsertIntegrationConnectionStatus({
+      workspaceId: workspace.id,
+      userId: user.id,
+      provider: integration,
+      status: "error",
+      permissionScope,
+      lastError: message,
+    });
+  };
 
   if (intent === "outlook_connect" && provider !== "microsoft") {
+    await upsertProviderError(
+      "outlook",
+      "use_microsoft_for_outlook",
+      "openid profile email offline_access Mail.Read Calendars.Read User.Read",
+    );
     return NextResponse.redirect(
       new URL(
         `${safeNextPath}?integration=outlook&status=error&message=use_microsoft_for_outlook`,
@@ -84,6 +103,11 @@ export async function GET(request: NextRequest) {
   }
 
   if (intent === "gmail_connect" && provider !== "google") {
+    await upsertProviderError(
+      "gmail",
+      "use_google_for_gmail",
+      "gmail.readonly gmail.send gmail.compose",
+    );
     return NextResponse.redirect(
       new URL(
         `${safeNextPath}?integration=gmail&status=error&message=use_google_for_gmail`,
@@ -135,14 +159,22 @@ export async function GET(request: NextRequest) {
       accessToken: providerToken,
       refreshToken: providerRefreshToken ?? null,
       tokenType: "Bearer",
-      scopes: ["openid", "profile", "email", "offline_access", "Mail.Read", "User.Read"],
+      scopes: [
+        "openid",
+        "profile",
+        "email",
+        "offline_access",
+        "Mail.Read",
+        "Calendars.Read",
+        "User.Read",
+      ],
     });
     await upsertIntegrationConnectionStatus({
       workspaceId: workspace.id,
       userId: user.id,
       provider: "outlook",
       status: "connected",
-      permissionScope: "openid profile email offline_access Mail.Read User.Read",
+      permissionScope: "openid profile email offline_access Mail.Read Calendars.Read User.Read",
     });
   }
 
@@ -151,6 +183,13 @@ export async function GET(request: NextRequest) {
     (intent === "gmail_connect" || intent === "outlook_connect")
   ) {
     const integration = intent === "gmail_connect" ? "gmail" : "outlook";
+    await upsertProviderError(
+      integration,
+      "missing_provider_token",
+      integration === "gmail"
+        ? "gmail.readonly gmail.send gmail.compose"
+        : "openid profile email offline_access Mail.Read Calendars.Read User.Read",
+    );
     return NextResponse.redirect(
       new URL(
         `${safeNextPath}?integration=${integration}&status=error&message=missing_provider_token`,

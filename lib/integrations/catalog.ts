@@ -1,13 +1,17 @@
 import type { IntegrationCapability, IntegrationProvider } from "@/types";
 
-const readWrite = (read = true, write = true): IntegrationCapability[] => [
+const readWrite = (
+  read = true,
+  write = true,
+  webhook = false,
+): IntegrationCapability[] => [
   { key: "search", supported: read },
   { key: "read", supported: read },
   { key: "sync", supported: read },
   { key: "draft", supported: write },
   { key: "send", supported: write },
   { key: "writeback", supported: write },
-  { key: "webhook_ingest", supported: true },
+  { key: "webhook_ingest", supported: webhook },
 ];
 
 export const INTEGRATION_PROVIDERS: IntegrationProvider[] = [
@@ -16,7 +20,6 @@ export const INTEGRATION_PROVIDERS: IntegrationProvider[] = [
   "slack",
   "twilio",
   "linkedin",
-  "google_calendar",
   "zoom",
   "hubspot",
   "salesforce",
@@ -34,7 +37,7 @@ export const INTEGRATION_DEFAULT_CAPABILITIES: Record<
   slack: readWrite(true, true),
   twilio: readWrite(true, true),
   linkedin: readWrite(true, false),
-  google_calendar: readWrite(true, true),
+  google_calendar: readWrite(false, false),
   zoom: readWrite(true, true),
   hubspot: readWrite(true, true),
   salesforce: readWrite(true, true),

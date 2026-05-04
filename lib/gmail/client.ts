@@ -1,4 +1,4 @@
-import { getServerEnv } from "@/lib/env";
+import { getGoogleOAuthEnv } from "@/lib/env";
 import { fetchWithRetry } from "@/lib/integrations/http";
 
 interface GmailListResponse {
@@ -111,7 +111,7 @@ export async function getGmailMessageMetadata(input: {
 }
 
 export async function refreshGoogleAccessToken(input: { refreshToken: string }) {
-  const env = getServerEnv();
+  const env = getGoogleOAuthEnv();
 
   if (!env.GOOGLE_OAUTH_CLIENT_ID || !env.GOOGLE_OAUTH_CLIENT_SECRET) {
     throw new Error(

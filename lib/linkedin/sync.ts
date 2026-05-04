@@ -10,6 +10,12 @@ import {
 } from "@/lib/linkedin/integration-store";
 import { getSupabaseAdminClient } from "@/lib/supabase/admin";
 import { logIntegrationEvent } from "@/lib/integrations/telemetry";
+import {
+  ensureIdentityAlias,
+  ensureOrganizationForAccount,
+  ensurePersonProjection,
+  upsertSearchIndexEntry,
+} from "@/lib/workspace/projections";
 import type {
   Account,
   Contact,
@@ -109,6 +115,45 @@ export async function syncWorkspaceLinkedInSignals(input: {
         const oembed = await fetchLinkedInOEmbed({
           url: contact.linkedin_url,
         });
+        const organization = await ensureOrganizationForAccount({
+          workspaceId: input.workspace.id,
+          userId: input.userId,
+          account,
+          provider: "linkedin",
+        });
+        const person = await ensurePersonProjection({
+          workspaceId: input.workspace.id,
+          userId: input.userId,
+          provider: "linkedin",
+          organizationId: organization.id,
+          contact,
+          sourceObjectId: contact.id,
+        });
+
+        if (contact.email) {
+          await ensureIdentityAlias({
+            workspaceId: input.workspace.id,
+            userId: input.userId,
+            personId: person.id,
+            provider: "linkedin",
+            aliasType: "email",
+            aliasValue: contact.email,
+            sourceProvider: "linkedin",
+            sourceObjectId: contact.id,
+          });
+        }
+        if (contact.linkedin_url) {
+          await ensureIdentityAlias({
+            workspaceId: input.workspace.id,
+            userId: input.userId,
+            personId: person.id,
+            provider: "linkedin",
+            aliasType: "linkedin_url",
+            aliasValue: contact.linkedin_url,
+            sourceProvider: "linkedin",
+            sourceObjectId: contact.id,
+          });
+        }
 
         const summaryLines = [
           `LinkedIn URL: ${contact.linkedin_url}`,
@@ -209,6 +254,38 @@ export async function syncWorkspaceLinkedInSignals(input: {
         } catch (ingestError) {
           console.error("HydraDB LinkedIn note ingestion failed", ingestError);
         }
+
+        await upsertSearchIndexEntry({
+          workspaceId: input.workspace.id,
+          userId: input.userId,
+          entityType: "person",
+          entityId: person.id,
+          title: person.full_name,
+          body: [contact.email, contact.title, content].filter(Boolean).join("\n"),
+          provider: "linkedin",
+          sourceObjectId: contact.id,
+          metadata: {
+            provider: "linkedin",
+            organization_id: organization.id,
+            contact_id: contact.id,
+          },
+        });
+
+        await upsertSearchIndexEntry({
+          workspaceId: input.workspace.id,
+          userId: input.userId,
+          entityType: "note",
+          entityId: insertedNote.id,
+          title: insertedNote.title,
+          body: insertedNote.content,
+          provider: "linkedin",
+          sourceObjectId: insertedNote.id,
+          metadata: {
+            provider: "linkedin",
+            account_id: account.id,
+            contact_id: contact.id,
+          },
+        });
 
         const syncInsert = await supabase.from("linkedin_profile_syncs").insert({
           workspace_id: input.workspace.id,

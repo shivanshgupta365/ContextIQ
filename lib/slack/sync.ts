@@ -10,16 +10,17 @@ import {
 } from "@/lib/slack/integration-store";
 import { getSupabaseAdminClient } from "@/lib/supabase/admin";
 import type { Account, Contact, Note, SlackSyncResult, Workspace } from "@/types";
-
-function normalizeDomain(input: string | null | undefined) {
-  if (!input) return null;
-  return input
-    .toLowerCase()
-    .replace(/^https?:\/\//, "")
-    .replace(/^www\./, "")
-    .split("/")[0]
-    .trim();
-}
+import {
+  ensureAccountForEmail,
+  ensureContactForEmail,
+  ensureConversationProjection,
+  ensureIdentityAlias,
+  ensureOrganizationForAccount,
+  ensurePersonProjection,
+  normalizeDomain,
+  upsertMessageProjection,
+  upsertSearchIndexEntry,
+} from "@/lib/workspace/projections";
 
 function extractPossibleEmails(value: string) {
   const matches = value.match(/[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/gi) ?? [];
@@ -118,13 +119,14 @@ export async function syncWorkspaceSlackSignals(input: {
 
         try {
           const emails = extractPossibleEmails(message.text);
-          const matchedContact = emails
+          let matchedContact = emails
             .map((email) => contactByEmail.get(email))
             .find(Boolean) as Contact | undefined;
 
-          const matchedAccount =
-            (matchedContact
-              ? typedAccounts.find((account) => account.id === matchedContact.account_id)
+          const matchedContactAccountId = matchedContact?.account_id ?? null;
+          let matchedAccount =
+            (matchedContactAccountId
+              ? typedAccounts.find((account) => account.id === matchedContactAccountId)
               : null) ??
             emails
               .map((email) => {
@@ -132,81 +134,226 @@ export async function syncWorkspaceSlackSignals(input: {
                 return domain ? accountByDomain.get(domain) : null;
               })
               .find(Boolean) ??
-            typedAccounts[0] ??
             null;
 
-          if (!matchedAccount) {
-            result.skipped += 1;
-            continue;
+          if (!matchedAccount && emails[0]) {
+            matchedAccount = await ensureAccountForEmail({
+              workspaceId: input.workspace.id,
+              userId: input.userId,
+              email: emails[0],
+              provider: "slack",
+            }).catch(() => null);
+            if (matchedAccount?.domain) {
+              typedAccounts.push(matchedAccount);
+              accountByDomain.set(normalizeDomain(matchedAccount.domain)!, matchedAccount);
+            }
           }
 
-          const activityInsert = await supabase
-            .from("activities")
-            .insert({
-              workspace_id: input.workspace.id,
-              account_id: matchedAccount.id,
-              contact_id: matchedContact?.id ?? null,
-              actor_id: input.userId,
-              activity_type: "note_added",
-              title: `Slack signal synced from #${channel.name}`,
-              description: message.text || null,
-              occurred_at: message.occurredAt,
+          if (!matchedContact && emails[0] && matchedAccount) {
+            matchedContact = await ensureContactForEmail({
+              workspaceId: input.workspace.id,
+              accountId: matchedAccount.id,
+              email: emails[0],
+            });
+            if (matchedContact.email) {
+              typedContacts.push(matchedContact);
+              contactByEmail.set(matchedContact.email.toLowerCase(), matchedContact);
+            }
+          }
+
+          const organization = matchedAccount
+            ? await ensureOrganizationForAccount({
+                workspaceId: input.workspace.id,
+                userId: input.userId,
+                account: matchedAccount,
+                provider: "slack",
+              })
+            : null;
+          const person = matchedContact
+            ? await ensurePersonProjection({
+                workspaceId: input.workspace.id,
+                userId: input.userId,
+                provider: "slack",
+                organizationId: organization?.id ?? null,
+                contact: matchedContact,
+                sourceObjectId: matchedContact.id,
+              })
+            : null;
+
+          if (person && matchedContact?.email) {
+            await ensureIdentityAlias({
+              workspaceId: input.workspace.id,
+              userId: input.userId,
+              personId: person.id,
+              provider: "slack",
+              aliasType: "email",
+              aliasValue: matchedContact.email,
+              sourceProvider: "slack",
+              sourceObjectId: syncKey,
+            });
+          }
+
+          const conversation = await ensureConversationProjection({
+            workspaceId: input.workspace.id,
+            userId: input.userId,
+            provider: "slack",
+            organizationId: organization?.id ?? null,
+            personId: person?.id ?? null,
+            channel: channel.name,
+            subject: `Slack #${channel.name}`,
+            lastMessageAt: message.occurredAt,
+            sourceObjectId: channel.id,
+            normalizedPayload: {
+              provider: "slack",
+              slack_channel_id: channel.id,
+              slack_channel_name: channel.name,
+            },
+          });
+
+          const projectedMessage = await upsertMessageProjection({
+            workspaceId: input.workspace.id,
+            userId: input.userId,
+            provider: "slack",
+            conversationId: conversation.id,
+            organizationId: organization?.id ?? null,
+            personId: person?.id ?? null,
+            sourceObjectId: syncKey,
+            direction: "internal",
+            body: message.text || "(empty Slack message)",
+            sentAt: message.occurredAt,
+            normalizedPayload: {
+              provider: "slack",
+              slack_channel_id: channel.id,
+              slack_channel_name: channel.name,
+              slack_user_id: message.userId,
+            },
+          });
+
+          await upsertSearchIndexEntry({
+            workspaceId: input.workspace.id,
+            userId: input.userId,
+            entityType: "message",
+            entityId: projectedMessage.id,
+            title: `Slack #${channel.name}`,
+            body: message.text || "(empty Slack message)",
+            provider: "slack",
+            sourceObjectId: syncKey,
+            metadata: {
+              provider: "slack",
+              conversation_id: conversation.id,
+              account_id: matchedAccount?.id ?? null,
+              person_id: person?.id ?? null,
+            },
+          });
+
+          let activityId: string | null = null;
+          let noteId: string | null = null;
+
+          if (matchedAccount) {
+            const activityInsert = await supabase
+              .from("activities")
+              .insert({
+                workspace_id: input.workspace.id,
+                account_id: matchedAccount.id,
+                contact_id: matchedContact?.id ?? null,
+                actor_id: input.userId,
+                activity_type: "note_added",
+                title: `Slack signal synced from #${channel.name}`,
+                description: message.text || null,
+                occurred_at: message.occurredAt,
+                metadata: {
+                  topic: "slack_message",
+                  integration_source: "slack",
+                  slack_channel_id: channel.id,
+                  slack_channel_name: channel.name,
+                  slack_message_ts: message.id,
+                  slack_user_id: message.userId,
+                },
+              })
+              .select("id,title,description")
+              .single();
+
+            if (activityInsert.error || !activityInsert.data) {
+              throw activityInsert.error ?? new Error("Failed to insert Slack activity.");
+            }
+
+            activityId = activityInsert.data.id;
+
+            await upsertSearchIndexEntry({
+              workspaceId: input.workspace.id,
+              userId: input.userId,
+              entityType: "activity",
+              entityId: activityInsert.data.id,
+              title: activityInsert.data.title,
+              body: message.text || "(empty Slack message)",
+              provider: "slack",
+              sourceObjectId: activityInsert.data.id,
               metadata: {
-                topic: "slack_message",
-                slack_channel_id: channel.id,
-                slack_channel_name: channel.name,
-                slack_message_ts: message.id,
-                slack_user_id: message.userId,
+                provider: "slack",
+                account_id: matchedAccount.id,
+                contact_id: matchedContact?.id ?? null,
               },
-            })
-            .select("id")
-            .single();
-
-          if (activityInsert.error || !activityInsert.data) {
-            throw activityInsert.error ?? new Error("Failed to insert Slack activity.");
-          }
-
-          const noteInsert = await supabase
-            .from("notes")
-            .insert({
-              workspace_id: input.workspace.id,
-              account_id: matchedAccount.id,
-              contact_id: matchedContact?.id ?? null,
-              author_id: input.userId,
-              title: `Slack signal: #${channel.name}`,
-              content: message.text || "(empty Slack message)",
-              source_type: "transcript",
-              topic: "slack_message",
-              importance_level: "medium",
-            })
-            .select("*")
-            .single();
-
-          if (noteInsert.error || !noteInsert.data) {
-            throw noteInsert.error ?? new Error("Failed to insert Slack note.");
-          }
-
-          const insertedNote = noteInsert.data as Note;
-
-          try {
-            const hydraResponse = await addMemories({
-              tenantId: input.workspace.hydradb_tenant_id,
-              memories: [
-                buildNoteMemoryPayload({
-                  note: insertedNote,
-                  account: matchedAccount,
-                  contact: matchedContact ?? null,
-                  userId: input.userId,
-                }),
-              ],
             });
 
-            const memoryId = hydraResponse.memory_ids?.[0] ?? hydraResponse.ids?.[0] ?? null;
-            if (memoryId) {
-              await supabase.from("notes").update({ hydradb_memory_id: memoryId }).eq("id", insertedNote.id);
+            const noteInsert = await supabase
+              .from("notes")
+              .insert({
+                workspace_id: input.workspace.id,
+                account_id: matchedAccount.id,
+                contact_id: matchedContact?.id ?? null,
+                author_id: input.userId,
+                title: `Slack signal: #${channel.name}`,
+                content: message.text || "(empty Slack message)",
+                source_type: "transcript",
+                topic: "slack_message",
+                importance_level: "medium",
+              })
+              .select("*")
+              .single();
+
+            if (noteInsert.error || !noteInsert.data) {
+              throw noteInsert.error ?? new Error("Failed to insert Slack note.");
             }
-          } catch (ingestError) {
-            console.error("HydraDB Slack note ingestion failed", ingestError);
+
+            const insertedNote = noteInsert.data as Note;
+            noteId = insertedNote.id;
+
+            try {
+              const hydraResponse = await addMemories({
+                tenantId: input.workspace.hydradb_tenant_id,
+                memories: [
+                  buildNoteMemoryPayload({
+                    note: insertedNote,
+                    account: matchedAccount,
+                    contact: matchedContact ?? null,
+                    userId: input.userId,
+                  }),
+                ],
+              });
+
+              const memoryId = hydraResponse.memory_ids?.[0] ?? hydraResponse.ids?.[0] ?? null;
+              if (memoryId) {
+                await supabase.from("notes").update({ hydradb_memory_id: memoryId }).eq("id", insertedNote.id);
+              }
+            } catch (ingestError) {
+              console.error("HydraDB Slack note ingestion failed", ingestError);
+            }
+
+            await upsertSearchIndexEntry({
+              workspaceId: input.workspace.id,
+              userId: input.userId,
+              entityType: "note",
+              entityId: insertedNote.id,
+              title: insertedNote.title,
+              body: insertedNote.content,
+              provider: "slack",
+              sourceObjectId: insertedNote.id,
+              metadata: {
+                provider: "slack",
+                account_id: matchedAccount.id,
+                contact_id: matchedContact?.id ?? null,
+              },
+            });
           }
 
           const syncInsert = await supabase.from("slack_message_syncs").insert({
@@ -215,13 +362,15 @@ export async function syncWorkspaceSlackSignals(input: {
             slack_channel_id: channel.id,
             slack_channel_name: channel.name,
             slack_message_ts: message.id,
-            account_id: matchedAccount.id,
+            account_id: matchedAccount?.id ?? null,
             contact_id: matchedContact?.id ?? null,
-            activity_id: activityInsert.data.id,
-            note_id: insertedNote.id,
+            activity_id: activityId,
+            note_id: noteId,
           });
 
-          if (syncInsert.error) throw syncInsert.error;
+          if (syncInsert.error) {
+            throw syncInsert.error;
+          }
 
           existingKeys.add(syncKey);
           result.imported += 1;

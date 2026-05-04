@@ -2,6 +2,10 @@ import { cache } from "react";
 
 import { requireSessionUser } from "@/lib/auth/session";
 import { getGmailIntegrationStatus } from "@/lib/gmail/integration-store";
+import {
+  inferIntegrationSourceForActivity,
+  inferIntegrationSourceForNote,
+} from "@/lib/integrations/provider-source";
 import { getWorkspaceProviderReadiness } from "@/lib/integrations/service";
 import { getLinkedInIntegrationStatus } from "@/lib/linkedin/integration-store";
 import { getOutlookIntegrationStatus } from "@/lib/outlook/integration-store";
@@ -99,16 +103,7 @@ function buildFallbackMemories(input: {
         input.contacts.find((contact) => contact.id === note.contact_id)?.name ?? null,
       contact_role_type:
         input.contacts.find((contact) => contact.id === note.contact_id)?.role_type ?? null,
-      integration_source:
-        note.source_type === "email_summary" || (note.topic ?? "").toLowerCase().includes("gmail")
-          ? "gmail"
-          : (note.topic ?? "").toLowerCase().includes("outlook")
-            ? "outlook"
-          : (note.topic ?? "").toLowerCase().includes("linkedin")
-            ? "linkedin"
-            : (note.topic ?? "").toLowerCase().includes("slack")
-              ? "slack"
-            : null,
+      integration_source: inferIntegrationSourceForNote(note),
     },
   }));
 
@@ -139,24 +134,7 @@ function buildFallbackMemories(input: {
         contact_role_type:
           input.contacts.find((contact) => contact.id === activity.contact_id)?.role_type ??
           null,
-        integration_source:
-          (typeof activity.metadata.topic === "string" ? activity.metadata.topic : "")
-            .toLowerCase()
-            .includes("gmail")
-            ? "gmail"
-            : (typeof activity.metadata.topic === "string" ? activity.metadata.topic : "")
-                  .toLowerCase()
-                  .includes("outlook")
-              ? "outlook"
-            : (typeof activity.metadata.topic === "string" ? activity.metadata.topic : "")
-                  .toLowerCase()
-                  .includes("linkedin")
-              ? "linkedin"
-              : (typeof activity.metadata.topic === "string" ? activity.metadata.topic : "")
-                    .toLowerCase()
-                    .includes("slack")
-                ? "slack"
-              : null,
+        integration_source: inferIntegrationSourceForActivity(activity),
       },
     }));
 
@@ -358,10 +336,6 @@ export async function getWorkspaceRailMemories(limit = 6): Promise<RecalledMemor
     limit,
   );
 
-  if (outputMemories.length > 0) {
-    return outputMemories;
-  }
-
   const [
     { data: notes, error: notesError },
     { data: activities, error: activitiesError },
@@ -437,17 +411,7 @@ export async function getWorkspaceRailMemories(limit = 6): Promise<RecalledMemor
           account_name: account?.name ?? null,
           contact_name: contact?.name ?? null,
           contact_role_type: contact?.role_type ?? null,
-          integration_source:
-            note.source_type === "email_summary" ||
-            (note.topic ?? "").toLowerCase().includes("gmail")
-              ? "gmail"
-              : (note.topic ?? "").toLowerCase().includes("outlook")
-                ? "outlook"
-              : (note.topic ?? "").toLowerCase().includes("linkedin")
-                ? "linkedin"
-                : (note.topic ?? "").toLowerCase().includes("slack")
-                  ? "slack"
-                : null,
+          integration_source: inferIntegrationSourceForNote(note),
         },
       } satisfies RecalledMemory;
     });
@@ -480,30 +444,13 @@ export async function getWorkspaceRailMemories(limit = 6): Promise<RecalledMemor
           account_name: account?.name ?? null,
           contact_name: contact?.name ?? null,
           contact_role_type: contact?.role_type ?? null,
-          integration_source:
-            (typeof activity.metadata.topic === "string" ? activity.metadata.topic : "")
-              .toLowerCase()
-              .includes("gmail")
-              ? "gmail"
-              : (typeof activity.metadata.topic === "string" ? activity.metadata.topic : "")
-                    .toLowerCase()
-                    .includes("outlook")
-                ? "outlook"
-              : (typeof activity.metadata.topic === "string" ? activity.metadata.topic : "")
-                    .toLowerCase()
-                    .includes("linkedin")
-                ? "linkedin"
-                : (typeof activity.metadata.topic === "string" ? activity.metadata.topic : "")
-                      .toLowerCase()
-                      .includes("slack")
-                  ? "slack"
-                : null,
+          integration_source: inferIntegrationSourceForActivity(activity),
         },
       } satisfies RecalledMemory;
     });
 
   return dedupeMemories(
-    [...noteMemories, ...activityMemories].sort(
+    [...outputMemories, ...noteMemories, ...activityMemories].sort(
       (a, b) =>
         new Date(b.metadata.created_at).getTime() - new Date(a.metadata.created_at).getTime(),
     ),
@@ -545,6 +492,63 @@ export async function getWorkspaceSlackStatus(): Promise<SlackIntegrationStatus>
     workspaceId: workspace.id,
     userId,
   });
+}
+
+export async function getWorkspaceIntegrationStatuses() {
+  const [gmail, linkedin, outlook, slack] = await Promise.allSettled([
+    getWorkspaceGmailStatus(),
+    getWorkspaceLinkedInStatus(),
+    getWorkspaceOutlookStatus(),
+    getWorkspaceSlackStatus(),
+  ]);
+
+  return {
+    gmailStatus:
+      gmail.status === "fulfilled"
+        ? gmail.value
+        : {
+            connected: false,
+            email: null,
+            last_synced_at: null,
+            sync_status: "error" as const,
+            last_error: "Failed to load Gmail status.",
+          },
+    linkedInStatus:
+      linkedin.status === "fulfilled"
+        ? linkedin.value
+        : {
+            connected: false,
+            email: null,
+            linkedin_sub: null,
+            last_synced_at: null,
+            sync_status: "error" as const,
+            last_error: "Failed to load LinkedIn status.",
+          },
+    outlookStatus:
+      outlook.status === "fulfilled"
+        ? outlook.value
+        : {
+            connected: false,
+            email: null,
+            last_synced_at: null,
+            sync_status: "error" as const,
+            last_error: "Failed to load Outlook status.",
+          },
+    slackStatus:
+      slack.status === "fulfilled"
+        ? slack.value
+        : {
+            connected: false,
+            email: null,
+            team_id: null,
+            team_name: null,
+            slack_user_id: null,
+            needs_reconnect: false,
+            last_synced_at: null,
+            sync_status: "error" as const,
+            last_error: "Failed to load Slack status.",
+          },
+  };
 }
 
 export async function getAccountPageData(accountId: string): Promise<AccountPageData> {

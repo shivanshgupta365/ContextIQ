@@ -1,9 +1,9 @@
 import { NextRequest } from "next/server";
 
-import { getServerEnv } from "@/lib/env";
+import { getCronEnv } from "@/lib/env";
 
 export function assertAuthorizedCronRequest(request: NextRequest) {
-  const env = getServerEnv();
+  const env = getCronEnv();
   const configured = env.CRON_SYNC_SECRET;
 
   if (!configured) {

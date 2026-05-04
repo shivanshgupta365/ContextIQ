@@ -24,7 +24,7 @@ export async function GET(request: NextRequest) {
   if (error) {
     return NextResponse.redirect(
       new URL(
-        `/overview?integration=linkedin&status=error&message=${encodeURIComponent(error)}`,
+        `${safeNext}?integration=linkedin&status=error&message=${encodeURIComponent(error)}`,
         request.url,
       ),
     );
@@ -32,7 +32,7 @@ export async function GET(request: NextRequest) {
 
   if (!code || !state || !expectedState || state !== expectedState) {
     return NextResponse.redirect(
-      new URL("/overview?integration=linkedin&status=error&message=invalid_state", request.url),
+      new URL(`${safeNext}?integration=linkedin&status=error&message=invalid_state`, request.url),
     );
   }
 
@@ -89,7 +89,7 @@ export async function GET(request: NextRequest) {
       callbackError instanceof Error ? callbackError.message : "LinkedIn connect failed";
     return NextResponse.redirect(
       new URL(
-        `/overview?integration=linkedin&status=error&message=${encodeURIComponent(message)}`,
+        `${safeNext}?integration=linkedin&status=error&message=${encodeURIComponent(message)}`,
         request.url,
       ),
     );

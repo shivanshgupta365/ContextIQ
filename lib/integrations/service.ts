@@ -148,7 +148,8 @@ export async function getWorkspaceProviderReadiness(params: {
   if (slack) {
     const syncStatus = String(slack.sync_status ?? "idle");
     const needsReconnect = Boolean(slack.needs_reconnect);
-    const status = syncStatus === "error" ? "error" : "connected";
+    const status =
+      syncStatus === "error" || needsReconnect ? "error" : "connected";
     const teamLabel =
       (slack.team_name as string | null) ??
       (slack.team_id as string | null) ??
@@ -159,7 +160,9 @@ export async function getWorkspaceProviderReadiness(params: {
       last_synced_at: (slack.last_synced_at as string | null) ?? null,
       message:
         status === "error"
-          ? `Slack error: ${String(slack.last_error ?? "sync failed")}`
+          ? needsReconnect
+            ? "Slack needs reconnect with a user token for per-user retrieval."
+            : `Slack error: ${String(slack.last_error ?? "sync failed")}`
           : `Connected${teamLabel ? ` to ${teamLabel}` : ""}${
               needsReconnect ? " (reconnect recommended for user token)" : ""
             }`,

@@ -139,7 +139,10 @@ export async function getValidGmailAccessToken(input: {
   }
 
   const expiresAtMs = integration.expires_at ? new Date(integration.expires_at).getTime() : null;
-  const needsRefresh = expiresAtMs != null && expiresAtMs <= Date.now() + 30_000;
+  const needsRefresh =
+    expiresAtMs == null
+      ? Boolean(integration.refresh_token)
+      : expiresAtMs <= Date.now() + 30_000;
 
   if (!needsRefresh) {
     return {

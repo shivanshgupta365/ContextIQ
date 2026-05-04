@@ -18,7 +18,7 @@ export async function POST(request: NextRequest) {
 
     const { data: membership, error: membershipError } = await supabase
       .from("workspace_members")
-      .select("workspace_id")
+      .select("workspace_id, workspace:workspaces(hydradb_tenant_id)")
       .eq("user_id", user.id)
       .limit(1)
       .single();
@@ -29,6 +29,10 @@ export async function POST(request: NextRequest) {
 
     const result = await runCommandSearch({
       workspaceId: membership.workspace_id as string,
+      hydraTenantId:
+        ((membership.workspace as { hydradb_tenant_id?: string } | null)?.hydradb_tenant_id as
+          | string
+          | undefined) ?? null,
       query: input.query,
       accountId: input.accountId ?? null,
       personId: input.personId ?? null,

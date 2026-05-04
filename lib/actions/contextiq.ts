@@ -15,6 +15,10 @@ import {
   assertIntegrationRateLimit,
   recordIntegrationActionEvent,
 } from "@/lib/integrations/rate-limit";
+import {
+  inferIntegrationSourceForActivity,
+  inferIntegrationSourceForNote,
+} from "@/lib/integrations/provider-source";
 import { logIntegrationEvent } from "@/lib/integrations/telemetry";
 import { upsertIntegrationConnectionStatus } from "@/lib/integrations/connections";
 import { generateGeminiText } from "@/lib/gemini/client";
@@ -36,6 +40,10 @@ import {
   sendGmailFollowUpSchema,
 } from "@/lib/validators/contextiq";
 import { getSupabaseAdminClient } from "@/lib/supabase/admin";
+import {
+  upsertDocumentProjection,
+  upsertSearchIndexEntry,
+} from "@/lib/workspace/projections";
 import type {
   Account,
   ActivityRecord,
@@ -48,6 +56,24 @@ import type {
   RecalledMemory,
   IntegrationProvider,
 } from "@/types";
+
+function revalidateWorkspaceSurfaces(accountId?: string | null) {
+  revalidatePath("/overview");
+  revalidatePath("/command-center");
+  revalidatePath("/contacts");
+  revalidatePath("/people");
+  revalidatePath("/conversations");
+  revalidatePath("/meetings");
+  revalidatePath("/actions");
+  revalidatePath("/notes-briefs");
+  revalidatePath("/activity-audit");
+  revalidatePath("/activity");
+  revalidatePath("/accounts", "layout");
+
+  if (accountId) {
+    revalidatePath(`/accounts/${accountId}`);
+  }
+}
 
 export async function createAccountAction(input: unknown) {
   const values = createAccountSchema.parse(input);
@@ -141,6 +167,7 @@ export async function createNoteAction(input: unknown) {
   if (error) throw error;
 
   const note = data as Note;
+  const noteProvider = inferIntegrationSourceForNote(note) ?? "gmail";
 
   const [{ data: account }, { data: contact }] = await Promise.all([
     supabase
@@ -178,8 +205,28 @@ export async function createNoteAction(input: unknown) {
     console.error("HydraDB note ingestion failed", error);
   }
 
-  revalidatePath(`/accounts/${values.accountId}`);
-  revalidatePath("/overview");
+  await upsertSearchIndexEntry({
+    workspaceId: values.workspaceId,
+    userId,
+    entityType: "note",
+    entityId: note.id,
+    title: note.title || note.topic || "Workspace note",
+    body: [note.title, note.content, note.topic].filter(Boolean).join("\n"),
+    provider: noteProvider,
+    sourceObjectId: note.id,
+    metadata: {
+      provider: noteProvider,
+      account_id: note.account_id,
+      contact_id: note.contact_id,
+      source_type: note.source_type,
+      topic: note.topic,
+      importance_level: note.importance_level,
+    },
+  }).catch((indexError) => {
+    console.error("Note search indexing failed", indexError);
+  });
+
+  revalidateWorkspaceSurfaces(values.accountId);
 
   return note;
 }
@@ -214,6 +261,7 @@ export async function createActivityAction(input: unknown) {
   if (error) throw error;
 
   const activity = data as ActivityRecord;
+  const activityProvider = inferIntegrationSourceForActivity(activity) ?? "gmail";
 
   const [{ data: account }, { data: contact }] = await Promise.all([
     supabase
@@ -259,9 +307,34 @@ export async function createActivityAction(input: unknown) {
     }
   }
 
-  revalidatePath(`/accounts/${values.accountId}`);
-  revalidatePath("/activity");
-  revalidatePath("/overview");
+  await upsertSearchIndexEntry({
+    workspaceId: values.workspaceId,
+    userId,
+    entityType: "activity",
+    entityId: activity.id,
+    title: activity.title,
+    body: [activity.title, activity.description].filter(Boolean).join("\n"),
+    provider: activityProvider,
+    sourceObjectId: activity.id,
+    metadata: {
+      provider: activityProvider,
+      account_id: activity.account_id,
+      contact_id: activity.contact_id,
+      activity_type: activity.activity_type,
+      topic:
+        typeof activity.metadata?.topic === "string"
+          ? activity.metadata.topic
+          : activity.activity_type,
+      importance_level:
+        typeof activity.metadata?.importance_level === "string"
+          ? activity.metadata.importance_level
+          : "medium",
+    },
+  }).catch((indexError) => {
+    console.error("Activity search indexing failed", indexError);
+  });
+
+  revalidateWorkspaceSurfaces(values.accountId);
 
   return activity;
 }
@@ -295,7 +368,11 @@ export async function runComposerAction(input: unknown): Promise<ComposerResult>
     topK: 6,
   });
 
-  const scopedMemories = filterMemoriesForContact(memories, values.contactId, 6);
+  const scopedMemories = filterMemoriesForContact(
+    memories.length > 0 ? memories : pageData.memory_rail,
+    values.contactId,
+    6,
+  );
 
   const prompt = buildActionPrompt({
     actionType: values.actionType,
@@ -328,8 +405,48 @@ export async function runComposerAction(input: unknown): Promise<ComposerResult>
 
   if (error) throw error;
 
-  revalidatePath(`/accounts/${values.accountId}`);
-  revalidatePath("/overview");
+  const generationProvider =
+    scopedMemories.find((memory) => memory.metadata.integration_source)?.metadata
+      .integration_source ?? "gmail";
+
+  const projectedDocument = await upsertDocumentProjection({
+    workspaceId: workspace.id,
+    userId,
+    provider: generationProvider,
+    title: `${values.actionType.replaceAll("_", " ")} for ${pageData.account.name}`,
+    body: generation.text,
+    kind: values.actionType,
+    sourceObjectId: (data as GeneratedOutput).id,
+    normalizedPayload: {
+      account_id: values.accountId,
+      contact_id: values.contactId ?? null,
+      action_type: values.actionType,
+    },
+  }).catch((projectionError) => {
+    console.error("Generated output document projection failed", projectionError);
+    return null;
+  });
+
+  await upsertSearchIndexEntry({
+    workspaceId: workspace.id,
+    userId,
+    entityType: "document",
+    entityId: projectedDocument?.id ?? (data as GeneratedOutput).id,
+    title: `${values.actionType.replaceAll("_", " ")} for ${pageData.account.name}`,
+    body: generation.text,
+    provider: generationProvider,
+    sourceObjectId: (data as GeneratedOutput).id,
+    metadata: {
+      provider: generationProvider,
+      account_id: values.accountId,
+      contact_id: values.contactId ?? null,
+      action_type: values.actionType,
+    },
+  }).catch((indexError) => {
+    console.error("Generated output search indexing failed", indexError);
+  });
+
+  revalidateWorkspaceSurfaces(values.accountId);
 
   return {
     output: {
@@ -387,22 +504,41 @@ export async function clearWorkspaceDataAction(formData: FormData) {
   }
 
   const { workspace } = await getWorkspaceContext();
-  const supabase = await getSupabaseServerClient();
+  const supabase = getSupabaseAdminClient();
 
-  await supabase.from("generated_outputs").delete().eq("workspace_id", workspace.id);
-  await supabase.from("activities").delete().eq("workspace_id", workspace.id);
-  await supabase.from("notes").delete().eq("workspace_id", workspace.id);
-  await supabase.from("contacts").delete().eq("workspace_id", workspace.id);
-  await supabase.from("accounts").delete().eq("workspace_id", workspace.id);
+  for (const table of [
+    "search_index_entries",
+    "documents",
+    "messages",
+    "conversations",
+    "identity_aliases",
+    "people",
+    "organizations",
+    "meetings",
+    "generated_outputs",
+    "activities",
+    "notes",
+    "slack_message_syncs",
+    "outlook_message_syncs",
+    "linkedin_profile_syncs",
+    "gmail_message_syncs",
+    "contacts",
+    "accounts",
+    "integration_action_events",
+    "integration_sync_runs",
+    "integration_connections",
+    "gmail_integrations",
+    "linkedin_integrations",
+    "outlook_integrations",
+    "slack_integrations",
+  ] as const) {
+    const { error } = await supabase.from(table).delete().eq("workspace_id", workspace.id);
+    if (error) {
+      throw error;
+    }
+  }
 
-  await supabase.from("integration_action_events").delete().eq("workspace_id", workspace.id);
-  await supabase.from("integration_sync_runs").delete().eq("workspace_id", workspace.id);
-  await supabase.from("integration_connections").delete().eq("workspace_id", workspace.id);
-  await supabase.from("gmail_integrations").delete().eq("workspace_id", workspace.id);
-  await supabase.from("linkedin_integrations").delete().eq("workspace_id", workspace.id);
-  await supabase.from("outlook_integrations").delete().eq("workspace_id", workspace.id);
-  await supabase.from("slack_integrations").delete().eq("workspace_id", workspace.id);
-  await supabase
+  const { error: workspaceError } = await supabase
     .from("workspaces")
     .update({
       seed_source: null,
@@ -410,12 +546,12 @@ export async function clearWorkspaceDataAction(formData: FormData) {
       updated_at: new Date().toISOString(),
     })
     .eq("id", workspace.id);
+  if (workspaceError) {
+    throw workspaceError;
+  }
 
+  revalidateWorkspaceSurfaces();
   revalidatePath("/settings");
-  revalidatePath("/overview");
-  revalidatePath("/accounts", "layout");
-  revalidatePath("/contacts");
-  revalidatePath("/activity");
 }
 
 async function recordIntegrationSyncRun(input: {
@@ -433,7 +569,7 @@ async function recordIntegrationSyncRun(input: {
     skipped?: number;
     failed?: number;
   };
-  await admin.from("integration_sync_runs").insert({
+  const { error } = await admin.from("integration_sync_runs").insert({
     workspace_id: input.workspaceId,
     owner_user_id: input.userId,
     provider: input.provider,
@@ -441,7 +577,7 @@ async function recordIntegrationSyncRun(input: {
     imported_count: Number(details.imported ?? 0),
     skipped_count: Number(details.skipped ?? 0),
     failed_count: Number(details.failed ?? 0),
-    details: input.details as Record<string, unknown>,
+    details: (input.details ?? {}) as unknown as Record<string, unknown>,
     source_provider: input.provider,
     source_object_type: "integration_sync_run",
     source_object_id: `${input.provider}:${Date.now()}`,
@@ -453,6 +589,9 @@ async function recordIntegrationSyncRun(input: {
     permission_scope: input.permissionScope,
     synced_at: new Date().toISOString(),
   });
+  if (error) {
+    throw error;
+  }
 }
 
 export async function syncGmailWorkspaceAction() {
@@ -497,10 +636,7 @@ export async function syncGmailWorkspaceAction() {
       },
     });
 
-    revalidatePath("/overview");
-    revalidatePath("/activity");
-    revalidatePath("/contacts");
-    revalidatePath("/accounts", "layout");
+    revalidateWorkspaceSurfaces();
 
     return result;
   } catch (error) {
@@ -572,10 +708,7 @@ export async function syncLinkedInWorkspaceAction() {
       },
     });
 
-    revalidatePath("/overview");
-    revalidatePath("/activity");
-    revalidatePath("/contacts");
-    revalidatePath("/accounts", "layout");
+    revalidateWorkspaceSurfaces();
 
     return result;
   } catch (error) {
@@ -625,7 +758,7 @@ export async function syncOutlookWorkspaceAction() {
       userId,
       provider: "outlook",
       status: "connected",
-      permissionScope: "openid profile email offline_access Mail.Read User.Read",
+      permissionScope: "openid profile email offline_access Mail.Read Calendars.Read User.Read",
     });
     await recordIntegrationSyncRun({
       workspaceId: workspace.id,
@@ -633,7 +766,7 @@ export async function syncOutlookWorkspaceAction() {
       provider: "outlook",
       status: "ok",
       details: result,
-      permissionScope: "openid profile email offline_access Mail.Read User.Read",
+      permissionScope: "openid profile email offline_access Mail.Read Calendars.Read User.Read",
     });
     await recordIntegrationActionEvent({
       workspaceId: workspace.id,
@@ -644,13 +777,11 @@ export async function syncOutlookWorkspaceAction() {
         imported: result.imported,
         skipped: result.skipped,
         failed: result.failed,
+        meetings_imported: result.meetings_imported,
       },
     });
 
-    revalidatePath("/overview");
-    revalidatePath("/activity");
-    revalidatePath("/contacts");
-    revalidatePath("/accounts", "layout");
+    revalidateWorkspaceSurfaces();
 
     return result;
   } catch (error) {
@@ -660,7 +791,7 @@ export async function syncOutlookWorkspaceAction() {
       userId,
       provider: "outlook",
       status: "error",
-      permissionScope: "openid profile email offline_access Mail.Read User.Read",
+      permissionScope: "openid profile email offline_access Mail.Read Calendars.Read User.Read",
       lastError: message,
     });
     await recordIntegrationSyncRun({
@@ -669,7 +800,7 @@ export async function syncOutlookWorkspaceAction() {
       provider: "outlook",
       status: "error",
       details: { imported: 0, skipped: 0, failed: 1 },
-      permissionScope: "openid profile email offline_access Mail.Read User.Read",
+      permissionScope: "openid profile email offline_access Mail.Read Calendars.Read User.Read",
       errorMessage: message,
     });
     throw error;
@@ -725,10 +856,7 @@ export async function syncSlackWorkspaceAction() {
       },
     });
 
-    revalidatePath("/overview");
-    revalidatePath("/activity");
-    revalidatePath("/contacts");
-    revalidatePath("/accounts", "layout");
+    revalidateWorkspaceSurfaces();
 
     return result;
   } catch (error) {
@@ -963,9 +1091,7 @@ export async function sendGmailFollowUpAction(input: unknown): Promise<GmailSend
     },
   });
 
-  revalidatePath(`/accounts/${values.accountId}`);
-  revalidatePath("/activity");
-  revalidatePath("/overview");
+  revalidateWorkspaceSurfaces(values.accountId);
 
   return {
     message_id: gmailSent.id,

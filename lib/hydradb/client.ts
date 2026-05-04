@@ -1,5 +1,10 @@
 import type { Account, ActivityRecord, Contact, Note, RecalledMemory } from "@/types";
-import { getServerEnv } from "@/lib/env";
+import { getHydraEnv } from "@/lib/env";
+import {
+  inferIntegrationSourceForActivity,
+  inferIntegrationSourceForMemory,
+  inferIntegrationSourceForNote,
+} from "@/lib/integrations/provider-source";
 
 interface EnsureHydraTenantInput {
   tenantId: string;
@@ -20,7 +25,7 @@ interface HydraRecallInput {
 }
 
 async function hydraFetch<T>(path: string, init: RequestInit) {
-  const env = getServerEnv();
+  const env = getHydraEnv();
   const response = await fetch(`${env.HYDRADB_BASE_URL}${path}`, {
     ...init,
     headers: {
@@ -159,14 +164,21 @@ export async function fullRecall(input: HydraRecallInput) {
           memory.document_metadata?.contact_role_type == null
             ? null
             : String(memory.document_metadata.contact_role_type),
-        integration_source:
-          memory.document_metadata?.integration_source == null
-            ? null
-            : (String(memory.document_metadata.integration_source) as
-                | "gmail"
-                | "linkedin"
-                | "outlook"
-                | "slack"),
+        integration_source: inferIntegrationSourceForMemory({
+          topic:
+            memory.document_metadata?.topic == null
+              ? null
+              : String(memory.document_metadata.topic),
+          source_type: String(memory.document_metadata?.source_type ?? "memory"),
+          integration_source:
+            memory.document_metadata?.integration_source == null
+              ? null
+              : (String(memory.document_metadata.integration_source) as
+                  | "gmail"
+                  | "linkedin"
+                  | "outlook"
+                  | "slack"),
+        }),
       },
     }),
   );
@@ -178,18 +190,6 @@ export function buildNoteMemoryPayload(input: {
   contact: Contact | null;
   userId: string;
 }) {
-  const normalizedTopic = (input.note.topic ?? "").toLowerCase();
-  const inferredIntegrationSource =
-    normalizedTopic.includes("gmail") || input.note.source_type === "email_summary"
-      ? "gmail"
-      : normalizedTopic.includes("outlook")
-        ? "outlook"
-      : normalizedTopic.includes("linkedin")
-        ? "linkedin"
-        : normalizedTopic.includes("slack")
-          ? "slack"
-        : null;
-
   return {
     content: input.note.content,
     metadata: {
@@ -206,7 +206,7 @@ export function buildNoteMemoryPayload(input: {
       account_name: input.account.name,
       contact_name: input.contact?.name ?? null,
       contact_role_type: input.contact?.role_type ?? null,
-      integration_source: inferredIntegrationSource,
+      integration_source: inferIntegrationSourceForNote(input.note),
     },
   };
 }
@@ -221,16 +221,6 @@ export function buildActivityMemoryPayload(input: {
     typeof input.activity.metadata?.topic === "string"
       ? input.activity.metadata.topic
       : input.activity.activity_type;
-  const normalizedTopic = String(topicValue ?? "").toLowerCase();
-  const inferredIntegrationSource = normalizedTopic.includes("gmail")
-    ? "gmail"
-    : normalizedTopic.includes("outlook")
-      ? "outlook"
-    : normalizedTopic.includes("linkedin")
-      ? "linkedin"
-      : normalizedTopic.includes("slack")
-        ? "slack"
-      : null;
 
   const content =
     input.activity.description?.trim() ||
@@ -255,7 +245,7 @@ export function buildActivityMemoryPayload(input: {
       account_name: input.account.name,
       contact_name: input.contact?.name ?? null,
       contact_role_type: input.contact?.role_type ?? null,
-      integration_source: inferredIntegrationSource,
+      integration_source: inferIntegrationSourceForActivity(input.activity),
     },
   };
 }

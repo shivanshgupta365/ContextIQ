@@ -1,6 +1,6 @@
 import { randomBytes } from "node:crypto";
 
-import { getServerEnv } from "@/lib/env";
+import { getAppEnv, getSlackOAuthEnv } from "@/lib/env";
 import { fetchWithRetry } from "@/lib/integrations/http";
 
 export function buildSlackOAuthState() {
@@ -8,12 +8,12 @@ export function buildSlackOAuthState() {
 }
 
 function getSlackRedirectUri() {
-  const env = getServerEnv();
+  const env = getAppEnv();
   return `${env.APP_BASE_URL.replace(/\/$/, "")}/auth/slack/callback`;
 }
 
 export function buildSlackConnectUrl(input: { state: string }) {
-  const env = getServerEnv();
+  const env = getSlackOAuthEnv();
   if (!env.SLACK_CLIENT_ID) {
     throw new Error("Missing SLACK_CLIENT_ID.");
   }
@@ -31,7 +31,7 @@ export function buildSlackConnectUrl(input: { state: string }) {
 }
 
 export async function exchangeSlackCodeForToken(input: { code: string }) {
-  const env = getServerEnv();
+  const env = getSlackOAuthEnv();
   if (!env.SLACK_CLIENT_ID || !env.SLACK_CLIENT_SECRET) {
     throw new Error("Missing SLACK_CLIENT_ID / SLACK_CLIENT_SECRET.");
   }

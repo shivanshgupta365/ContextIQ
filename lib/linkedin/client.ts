@@ -1,10 +1,10 @@
 import { createHash, randomBytes } from "node:crypto";
 
-import { getServerEnv } from "@/lib/env";
+import { getAppEnv, getLinkedInOAuthEnv } from "@/lib/env";
 import { fetchWithRetry } from "@/lib/integrations/http";
 
 function getRedirectUri() {
-  const env = getServerEnv();
+  const env = getAppEnv();
   return `${env.APP_BASE_URL.replace(/\/$/, "")}/auth/linkedin/callback`;
 }
 
@@ -13,7 +13,7 @@ export function buildLinkedInOAuthState() {
 }
 
 export function buildLinkedInConnectUrl(input: { state: string }) {
-  const env = getServerEnv();
+  const env = getLinkedInOAuthEnv();
 
   if (!env.LINKEDIN_CLIENT_ID) {
     throw new Error("Missing LINKEDIN_CLIENT_ID.");
@@ -31,7 +31,7 @@ export function buildLinkedInConnectUrl(input: { state: string }) {
 }
 
 export async function exchangeLinkedInCodeForToken(input: { code: string }) {
-  const env = getServerEnv();
+  const env = getLinkedInOAuthEnv();
 
   if (!env.LINKEDIN_CLIENT_ID || !env.LINKEDIN_CLIENT_SECRET) {
     throw new Error("Missing LINKEDIN_CLIENT_ID / LINKEDIN_CLIENT_SECRET.");

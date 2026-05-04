@@ -572,6 +572,7 @@ export interface ProviderReadinessStatus {
 
 export interface CommandSearchRequest {
   workspaceId: string;
+  hydraTenantId?: string | null;
   query: string;
   accountId?: string | null;
   personId?: string | null;

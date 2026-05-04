@@ -1,6 +1,6 @@
 import { slugify } from "@/lib/utils";
 import { ensureHydraTenant } from "@/lib/hydradb/client";
-import { getServerEnv } from "@/lib/env";
+import { getHydraEnv } from "@/lib/env";
 import { getSupabaseAdminClient } from "@/lib/supabase/admin";
 import type { Workspace } from "@/types";
 
@@ -11,7 +11,7 @@ export async function bootstrapUserWorkspace(params: {
   avatarUrl: string | null;
   userSupabaseClient?: any;
 }): Promise<Workspace> {
-  const env = getServerEnv();
+  const env = getHydraEnv();
   const supabase = getSupabaseAdminClient();
 
   const profilePayload = {
