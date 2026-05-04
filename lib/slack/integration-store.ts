@@ -36,10 +36,20 @@ export async function upsertSlackIntegrationTokens(input: {
       bot_access_token_encrypted: input.botAccessToken
         ? encryptSecret(input.botAccessToken)
         : null,
+      access_token_encrypted: input.userAccessToken
+        ? encryptSecret(input.userAccessToken)
+        : input.botAccessToken
+          ? encryptSecret(input.botAccessToken)
+          : null,
       user_token_type: input.userTokenType ?? "user",
       bot_token_type: input.botTokenType ?? "bot",
+      token_type:
+        input.userTokenType ?? input.botTokenType ?? "Bearer",
       user_scopes: input.userScopes ?? [],
       bot_scopes: input.botScopes ?? [],
+      scopes: input.userScopes?.length
+        ? input.userScopes
+        : input.botScopes ?? [],
       needs_reconnect: input.needsReconnect ?? false,
       connected_at: new Date().toISOString(),
       sync_status: "idle",

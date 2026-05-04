@@ -1,7 +1,7 @@
 import { cookies } from "next/headers";
 import { NextRequest, NextResponse } from "next/server";
 
-import { getWorkspaceContext } from "@/lib/data/contextiq";
+import { getOAuthCallbackContext } from "@/lib/auth/oauth-callback-context";
 import { upsertIntegrationConnectionStatus } from "@/lib/integrations/connections";
 import {
   exchangeLinkedInCodeForToken,
@@ -37,19 +37,19 @@ export async function GET(request: NextRequest) {
   }
 
   try {
-    const [{ workspace, userId, profile }, token] = await Promise.all([
-      getWorkspaceContext(),
+    const [{ workspace, userId, profile, userEmail }, token] = await Promise.all([
+      getOAuthCallbackContext(),
       exchangeLinkedInCodeForToken({ code }),
     ]);
     const userInfo = await fetchLinkedInUserInfo({
       accessToken: token.accessToken,
-    });
+    }).catch(() => null);
 
     await upsertLinkedInIntegrationTokens({
       workspaceId: workspace.id,
       userId,
-      linkedinSub: userInfo.sub,
-      email: userInfo.email ?? profile.email ?? null,
+      linkedinSub: userInfo?.sub ?? null,
+      email: userInfo?.email ?? profile.email ?? userEmail ?? null,
       accessToken: token.accessToken,
       expiresAt: token.expiresAt,
       tokenType: token.tokenType,
@@ -65,13 +65,15 @@ export async function GET(request: NextRequest) {
 
     return NextResponse.redirect(
       new URL(
-        `${safeNext}?integration=linkedin&status=connected`,
+        `${safeNext}?integration=linkedin&status=connected${
+          userInfo ? "" : "&message=connected_with_profile_lookup_warning"
+        }`,
         request.url,
       ),
     );
   } catch (callbackError) {
     try {
-      const { workspace, userId } = await getWorkspaceContext();
+      const { workspace, userId } = await getOAuthCallbackContext();
       await upsertIntegrationConnectionStatus({
         workspaceId: workspace.id,
         userId,

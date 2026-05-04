@@ -88,6 +88,12 @@ export default async function SettingsRoute() {
             <div className="rounded-lg border border-slate-200 p-4">
               <div className="text-sm font-semibold text-slate-900">Gmail</div>
               <div className="mt-1 text-xs text-slate-500">{gmailConnected ? "Connected" : "Not connected"}</div>
+              {gmailStatus.last_synced_at ? (
+                <div className="mt-1 text-xs text-slate-500">Last sync: {gmailStatus.last_synced_at}</div>
+              ) : null}
+              {gmailStatus.last_error ? (
+                <div className="mt-1 text-xs text-rose-600">Error: {gmailStatus.last_error}</div>
+              ) : null}
               {gmailConnected ? (
                 <form action={triggerGmailWorkspaceSyncAction} className="mt-3">
                   <button className="h-9 rounded-md border border-slate-200 px-3 text-sm font-semibold text-slate-700 hover:bg-slate-50">Sync Gmail</button>
@@ -102,6 +108,15 @@ export default async function SettingsRoute() {
             <div className="rounded-lg border border-slate-200 p-4">
               <div className="text-sm font-semibold text-slate-900">LinkedIn</div>
               <div className="mt-1 text-xs text-slate-500">{linkedInConnected ? "Connected" : "Not connected"}</div>
+              {linkedInStatus.email ? (
+                <div className="mt-1 text-xs text-slate-500">Identity: {linkedInStatus.email}</div>
+              ) : null}
+              {linkedInStatus.last_synced_at ? (
+                <div className="mt-1 text-xs text-slate-500">Last sync: {linkedInStatus.last_synced_at}</div>
+              ) : null}
+              {linkedInStatus.last_error ? (
+                <div className="mt-1 text-xs text-rose-600">Error: {linkedInStatus.last_error}</div>
+              ) : null}
               {linkedInConnected ? (
                 <form action={triggerLinkedInWorkspaceSyncAction} className="mt-3">
                   <button className="h-9 rounded-md border border-slate-200 px-3 text-sm font-semibold text-slate-700 hover:bg-slate-50">Sync LinkedIn</button>
@@ -116,6 +131,15 @@ export default async function SettingsRoute() {
             <div className="rounded-lg border border-slate-200 p-4">
               <div className="text-sm font-semibold text-slate-900">Outlook</div>
               <div className="mt-1 text-xs text-slate-500">{outlookConnected ? "Connected" : "Not connected"}</div>
+              {outlookStatus.email ? (
+                <div className="mt-1 text-xs text-slate-500">Identity: {outlookStatus.email}</div>
+              ) : null}
+              {outlookStatus.last_synced_at ? (
+                <div className="mt-1 text-xs text-slate-500">Last sync: {outlookStatus.last_synced_at}</div>
+              ) : null}
+              {outlookStatus.last_error ? (
+                <div className="mt-1 text-xs text-rose-600">Error: {outlookStatus.last_error}</div>
+              ) : null}
               {outlookConnected ? (
                 <form action={triggerOutlookWorkspaceSyncAction} className="mt-3">
                   <button className="h-9 rounded-md border border-slate-200 px-3 text-sm font-semibold text-slate-700 hover:bg-slate-50">Sync Outlook</button>
@@ -130,6 +154,22 @@ export default async function SettingsRoute() {
             <div className="rounded-lg border border-slate-200 p-4">
               <div className="text-sm font-semibold text-slate-900">Slack</div>
               <div className="mt-1 text-xs text-slate-500">{slackConnected ? "Connected" : "Not connected"}</div>
+              {slackStatus.team_name || slackStatus.team_id ? (
+                <div className="mt-1 text-xs text-slate-500">
+                  Team: {slackStatus.team_name ?? slackStatus.team_id}
+                </div>
+              ) : null}
+              {slackStatus.needs_reconnect ? (
+                <div className="mt-1 text-xs text-amber-700">
+                  Reconnect recommended to enable user-scoped inbox retrieval.
+                </div>
+              ) : null}
+              {slackStatus.last_synced_at ? (
+                <div className="mt-1 text-xs text-slate-500">Last sync: {slackStatus.last_synced_at}</div>
+              ) : null}
+              {slackStatus.last_error ? (
+                <div className="mt-1 text-xs text-rose-600">Error: {slackStatus.last_error}</div>
+              ) : null}
               {slackConnected ? (
                 <form action={triggerSlackWorkspaceSyncAction} className="mt-3">
                   <button className="h-9 rounded-md border border-slate-200 px-3 text-sm font-semibold text-slate-700 hover:bg-slate-50">Sync Slack</button>

@@ -52,7 +52,7 @@ export function CreateAccountForm({ workspaceId }: { workspaceId: string }) {
           Create account
         </h3>
         <p className="mt-2 text-[14px] font-medium text-slate-500">
-          Seed live pipeline state without touching hardcoded UI.
+          Add a live customer account to your workspace pipeline.
         </p>
       </div>
       <div className="grid grid-cols-1 gap-3 md:grid-cols-2">

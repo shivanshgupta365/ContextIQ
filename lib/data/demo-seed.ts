@@ -43,7 +43,7 @@ export async function seedDemoWorkspace(input: {
   userId: string;
   hydraTenantId: string;
 }) {
-  // Demo-only dataset used by walk-in and explicit import actions.
+  // Demo-only dataset used by explicit import actions.
   const supabase = getSupabaseAdminClient();
 
   const { count } = await supabase
@@ -52,6 +52,19 @@ export async function seedDemoWorkspace(input: {
     .eq("workspace_id", input.workspaceId);
 
   if ((count ?? 0) > 0) return;
+
+  try {
+    await supabase
+      .from("workspaces")
+      .update({
+        seed_source: "explicit_demo_import",
+        seeded_at: new Date().toISOString(),
+        updated_at: new Date().toISOString(),
+      })
+      .eq("id", input.workspaceId);
+  } catch {
+    // Ignore marker failures on older schemas.
+  }
 
   const { data: insertedAccounts, error: accountError } = await supabase
     .from("accounts")

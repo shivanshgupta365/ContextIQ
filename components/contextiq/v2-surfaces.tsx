@@ -68,6 +68,7 @@ export function CommandCenterSurface({
   const [query, setQuery] = useState("");
   const [hits, setHits] = useState<CommandSearchHit[]>([]);
   const [error, setError] = useState<string | null>(null);
+  const [hasSearched, setHasSearched] = useState(false);
   const [isPending, startTransition] = useTransition();
 
   const runSearch = () => {
@@ -87,8 +88,10 @@ export function CommandCenterSurface({
         const data = await response.json();
         if (!response.ok) throw new Error(data.message || "Search failed.");
         setHits(data.hits ?? []);
+        setHasSearched(true);
       } catch (searchError) {
         setError(searchError instanceof Error ? searchError.message : "Search failed.");
+        setHasSearched(true);
       }
     });
   };
@@ -102,7 +105,7 @@ export function CommandCenterSurface({
               <input
                 value={query}
                 onChange={(event) => setQuery(event.target.value)}
-                placeholder="show me everything about Acme from last 30 days"
+                placeholder="show recent messages and blockers for esyasoft in last 30 days"
                 className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-[14px] font-medium text-slate-800 outline-none focus:border-[#2563EB]/40"
               />
               <button
@@ -119,7 +122,9 @@ export function CommandCenterSurface({
           <div className="space-y-3">
             {hits.length === 0 ? (
               <p className="text-[14px] font-medium text-slate-500">
-                Run a cross-tool query to retrieve account context and next actions.
+                {hasSearched
+                  ? "No live records yet; connect and sync Gmail, LinkedIn, Outlook, or Slack."
+                  : "Run a cross-tool query to retrieve live account context and next actions."}
               </p>
             ) : (
               hits.map((hit) => (

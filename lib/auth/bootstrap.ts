@@ -1,6 +1,5 @@
 import { slugify } from "@/lib/utils";
 import { ensureHydraTenant } from "@/lib/hydradb/client";
-import { seedDemoWorkspace } from "@/lib/data/demo-seed";
 import { getServerEnv } from "@/lib/env";
 import { getSupabaseAdminClient } from "@/lib/supabase/admin";
 import type { Workspace } from "@/types";
@@ -48,7 +47,7 @@ export async function bootstrapUserWorkspace(params: {
     return existingMembership.workspace as Workspace;
   }
 
-  const workspaceName = "ContextIQ Demo";
+  const workspaceName = "ContextIQ Workspace";
   const workspaceId = crypto.randomUUID();
   const fixedTenantId = env.HYDRADB_TENANT_ID?.trim() ?? "";
   const hydraTenantId = fixedTenantId.length > 0 ? fixedTenantId : `workspace_${workspaceId}`;
@@ -70,7 +69,7 @@ export async function bootstrapUserWorkspace(params: {
       owner_id: params.userId,
       name: workspaceName,
       slug: slugify(`${workspaceName}-${workspaceId.slice(0, 6)}`),
-      description: "Seeded ContextIQ demo workspace",
+      description: "Live ContextIQ workspace",
       hydradb_tenant_id: hydraTenantId,
     })
     .select("*")
@@ -85,14 +84,6 @@ export async function bootstrapUserWorkspace(params: {
   });
 
   if (memberError) throw memberError;
-
-  if (env.SEED_REAL_WORKSPACE_ON_SIGNUP === "true") {
-    await seedDemoWorkspace({
-      workspaceId,
-      userId: params.userId,
-      hydraTenantId: hydraTenantId,
-    });
-  }
 
   return workspace as Workspace;
 }

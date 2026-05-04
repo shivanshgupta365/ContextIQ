@@ -1,7 +1,7 @@
 import { cookies } from "next/headers";
 import { NextRequest, NextResponse } from "next/server";
 
-import { getWorkspaceContext } from "@/lib/data/contextiq";
+import { getOAuthCallbackContext } from "@/lib/auth/oauth-callback-context";
 import { upsertIntegrationConnectionStatus } from "@/lib/integrations/connections";
 import { exchangeSlackCodeForToken, fetchSlackAuthIdentity } from "@/lib/slack/client";
 import { upsertSlackIntegrationTokens } from "@/lib/slack/integration-store";
@@ -32,29 +32,27 @@ export async function GET(request: NextRequest) {
   }
 
   try {
-    const [{ workspace, userId, profile }, token] = await Promise.all([
-      getWorkspaceContext(),
+    const [{ workspace, userId, profile, userEmail }, token] = await Promise.all([
+      getOAuthCallbackContext(),
       exchangeSlackCodeForToken({ code }),
     ]);
 
     if (!token.userAccessToken && !token.botAccessToken) {
-      return NextResponse.redirect(
-        new URL("/overview?integration=slack&status=error&message=slack_user_token_missing", request.url),
-      );
+      throw new Error("slack_user_token_missing");
     }
 
     const identity = await fetchSlackAuthIdentity({
       accessToken: token.userAccessToken ?? token.botAccessToken ?? "",
-    });
+    }).catch(() => null);
 
     await upsertSlackIntegrationTokens({
       workspaceId: workspace.id,
       userId,
-      email: profile.email,
-      teamId: token.teamId ?? identity.teamId,
-      teamName: token.teamName ?? identity.teamName,
+      email: profile.email ?? userEmail,
+      teamId: token.teamId ?? identity?.teamId ?? null,
+      teamName: token.teamName ?? identity?.teamName ?? null,
       enterpriseId: token.enterpriseId,
-      slackUserId: token.slackUserId ?? identity.userId,
+      slackUserId: token.slackUserId ?? identity?.userId ?? null,
       userAccessToken: token.userAccessToken,
       botAccessToken: token.botAccessToken,
       userTokenType: token.userTokenType,
@@ -72,10 +70,18 @@ export async function GET(request: NextRequest) {
         "channels:history groups:history im:history mpim:history users:read channels:read groups:read im:read mpim:read",
     });
 
-    return NextResponse.redirect(new URL(`${safeNext}?integration=slack&status=connected`, request.url));
+    const warning = identity ? null : "connected_with_identity_lookup_warning";
+    const needsReconnect = !token.userAccessToken ? "reconnect_recommended" : null;
+    const message = [warning, needsReconnect].filter(Boolean).join(",");
+    return NextResponse.redirect(
+      new URL(
+        `${safeNext}?integration=slack&status=connected${message ? `&message=${encodeURIComponent(message)}` : ""}`,
+        request.url,
+      ),
+    );
   } catch (callbackError) {
     try {
-      const { workspace, userId } = await getWorkspaceContext();
+      const { workspace, userId } = await getOAuthCallbackContext();
       await upsertIntegrationConnectionStatus({
         workspaceId: workspace.id,
         userId,

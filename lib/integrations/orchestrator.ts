@@ -60,7 +60,7 @@ export async function connectIntegrationProvider(
       workspaceId: workspace.id,
       userId,
       provider,
-      status: "connected",
+      status: "pending_approval",
       permissionScope: "gmail.readonly gmail.send gmail.compose",
     });
     return {
@@ -76,7 +76,7 @@ export async function connectIntegrationProvider(
       workspaceId: workspace.id,
       userId,
       provider,
-      status: "connected",
+      status: "pending_approval",
       permissionScope: "openid profile email",
     });
     return {
@@ -92,7 +92,7 @@ export async function connectIntegrationProvider(
       workspaceId: workspace.id,
       userId,
       provider,
-      status: "connected",
+      status: "pending_approval",
       permissionScope: "openid profile email offline_access Mail.Read User.Read",
     });
     return {
@@ -108,7 +108,7 @@ export async function connectIntegrationProvider(
       workspaceId: workspace.id,
       userId,
       provider,
-      status: "connected",
+      status: "pending_approval",
       permissionScope:
         "channels:history groups:history im:history mpim:history users:read channels:read groups:read im:read mpim:read",
     });
@@ -359,7 +359,10 @@ export async function executeProviderWriteback(params: {
     new Date().toISOString(),
   ]);
 
-  const isSupported = params.provider === "gmail" || params.provider === "resend";
+  const isSupported =
+    params.provider === "gmail" ||
+    params.provider === "resend" ||
+    params.provider === "outlook";
   const status: IntegrationConnectionStatus = isSupported ? "connected" : "pending_approval";
 
   await upsertIntegrationConnectionStatus({
@@ -419,7 +422,7 @@ export async function executeCrossToolAction(
       : input.actionType === "post_slack"
         ? ("slack" as const)
         : input.actionType === "create_calendar_event"
-          ? ("google_calendar" as const)
+          ? ("outlook" as const)
           : input.actionType === "reply_intercom"
             ? ("intercom" as const)
             : input.actionType === "send_sms"

@@ -74,6 +74,24 @@ export async function GET(request: NextRequest) {
   const providerToken = providerSession?.provider_token as string | undefined;
   const providerRefreshToken = providerSession?.provider_refresh_token as string | undefined;
 
+  if (intent === "outlook_connect" && provider !== "microsoft") {
+    return NextResponse.redirect(
+      new URL(
+        `${safeNextPath}?integration=outlook&status=error&message=use_microsoft_for_outlook`,
+        request.url,
+      ),
+    );
+  }
+
+  if (intent === "gmail_connect" && provider !== "google") {
+    return NextResponse.redirect(
+      new URL(
+        `${safeNextPath}?integration=gmail&status=error&message=use_google_for_gmail`,
+        request.url,
+      ),
+    );
+  }
+
   if (
     providerToken &&
     provider === "google" &&
@@ -126,6 +144,19 @@ export async function GET(request: NextRequest) {
       status: "connected",
       permissionScope: "openid profile email offline_access Mail.Read User.Read",
     });
+  }
+
+  if (
+    !providerToken &&
+    (intent === "gmail_connect" || intent === "outlook_connect")
+  ) {
+    const integration = intent === "gmail_connect" ? "gmail" : "outlook";
+    return NextResponse.redirect(
+      new URL(
+        `${safeNextPath}?integration=${integration}&status=error&message=missing_provider_token`,
+        request.url,
+      ),
+    );
   }
 
   return response;

@@ -1,6 +1,6 @@
 import Link from "next/link";
 import type { Route } from "next";
-import { ReactNode } from "react";
+import { ReactNode, Suspense } from "react";
 import {
   Bell,
   Briefcase,
@@ -22,6 +22,7 @@ import {
 } from "lucide-react";
 
 import { ContextIQLogo } from "@/components/contextiq/logo";
+import { IntegrationStatusBanner } from "@/components/contextiq/integration-status-banner";
 import {
   signOutAction,
   triggerGmailWorkspaceSyncAction,
@@ -363,35 +364,36 @@ export function WorkspaceShell({
                   )}
                 </div>
 
-                {gmailStatus?.last_synced_at ? (
-                  <span className="text-[10px] font-medium text-slate-400">
-                    Gmail: {formatRelativeDate(gmailStatus.last_synced_at)}
-                  </span>
-                ) : gmailStatus?.last_error ? (
-                  <span className="text-[10px] font-medium text-rose-500">Gmail sync error</span>
-                ) : linkedInStatus?.last_synced_at ? (
-                  <span className="text-[10px] font-medium text-slate-400">
-                    LinkedIn: {formatRelativeDate(linkedInStatus.last_synced_at)}
-                  </span>
-                ) : linkedInStatus?.last_error ? (
-                  <span className="text-[10px] font-medium text-rose-500">
-                    LinkedIn sync error
-                  </span>
-                ) : outlookStatus?.last_synced_at ? (
-                  <span className="text-[10px] font-medium text-slate-400">
-                    Outlook: {formatRelativeDate(outlookStatus.last_synced_at)}
-                  </span>
-                ) : outlookStatus?.last_error ? (
-                  <span className="text-[10px] font-medium text-rose-500">
-                    Outlook sync error
-                  </span>
-                ) : slackStatus?.last_synced_at ? (
-                  <span className="text-[10px] font-medium text-slate-400">
-                    Slack: {formatRelativeDate(slackStatus.last_synced_at)}
-                  </span>
-                ) : slackStatus?.last_error ? (
-                  <span className="text-[10px] font-medium text-rose-500">Slack sync error</span>
-                ) : null}
+                <div className="flex flex-wrap items-center justify-end gap-2 text-[10px] font-medium">
+                  {gmailStatus?.last_error ? (
+                    <span className="text-rose-500">Gmail sync error</span>
+                  ) : gmailStatus?.last_synced_at ? (
+                    <span className="text-slate-400">
+                      Gmail: {formatRelativeDate(gmailStatus.last_synced_at)}
+                    </span>
+                  ) : null}
+                  {linkedInStatus?.last_error ? (
+                    <span className="text-rose-500">LinkedIn sync error</span>
+                  ) : linkedInStatus?.last_synced_at ? (
+                    <span className="text-slate-400">
+                      LinkedIn: {formatRelativeDate(linkedInStatus.last_synced_at)}
+                    </span>
+                  ) : null}
+                  {outlookStatus?.last_error ? (
+                    <span className="text-rose-500">Outlook sync error</span>
+                  ) : outlookStatus?.last_synced_at ? (
+                    <span className="text-slate-400">
+                      Outlook: {formatRelativeDate(outlookStatus.last_synced_at)}
+                    </span>
+                  ) : null}
+                  {slackStatus?.last_error ? (
+                    <span className="text-rose-500">Slack sync error</span>
+                  ) : slackStatus?.last_synced_at ? (
+                    <span className="text-slate-400">
+                      Slack: {formatRelativeDate(slackStatus.last_synced_at)}
+                    </span>
+                  ) : null}
+                </div>
               </div>
             ) : null}
 
@@ -412,6 +414,9 @@ export function WorkspaceShell({
             </button>
           </div>
         </header>
+        <Suspense fallback={null}>
+          <IntegrationStatusBanner />
+        </Suspense>
 
         <div className="flex flex-1 overflow-hidden">
           <main className="flex-1 overflow-y-auto">{children}</main>

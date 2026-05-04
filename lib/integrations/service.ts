@@ -19,7 +19,13 @@ export async function getWorkspaceProviderReadiness(params: {
   userId: string;
 }) {
   const supabase = await getSupabaseServerClient();
-  const [{ data }, { data: gmail }, { data: linkedin }, { data: outlook }, { data: slack }] =
+  const [
+    connectionsResult,
+    gmailResult,
+    linkedinResult,
+    outlookResult,
+    slackResult,
+  ] =
     await Promise.all([
       supabase
         .from("integration_connections")
@@ -56,6 +62,12 @@ export async function getWorkspaceProviderReadiness(params: {
         .maybeSingle(),
     ]);
 
+  const { data, error: connectionsError } = connectionsResult;
+  const { data: gmail, error: gmailError } = gmailResult;
+  const { data: linkedin, error: linkedinError } = linkedinResult;
+  const { data: outlook, error: outlookError } = outlookResult;
+  const { data: slack, error: slackError } = slackResult;
+
   const byProvider = new Map<IntegrationProvider, ConnectionRow>();
   for (const row of (data ?? []) as ConnectionRow[]) {
     byProvider.set(row.provider, row);
@@ -66,6 +78,13 @@ export async function getWorkspaceProviderReadiness(params: {
     Omit<ProviderReadinessStatus, "provider" | "capabilities">
   >();
 
+  if (gmailError) {
+    oauthReadiness.set("gmail", {
+      status: "error",
+      last_synced_at: null,
+      message: `Gmail status unavailable: ${gmailError.message}`,
+    });
+  }
   if (gmail) {
     const syncStatus = String(gmail.sync_status ?? "idle");
     const status = syncStatus === "error" ? "error" : "connected";
@@ -79,6 +98,13 @@ export async function getWorkspaceProviderReadiness(params: {
     });
   }
 
+  if (linkedinError) {
+    oauthReadiness.set("linkedin", {
+      status: "error",
+      last_synced_at: null,
+      message: `LinkedIn status unavailable: ${linkedinError.message}`,
+    });
+  }
   if (linkedin) {
     const syncStatus = String(linkedin.sync_status ?? "idle");
     const status = syncStatus === "error" ? "error" : "connected";
@@ -92,6 +118,13 @@ export async function getWorkspaceProviderReadiness(params: {
     });
   }
 
+  if (outlookError) {
+    oauthReadiness.set("outlook", {
+      status: "error",
+      last_synced_at: null,
+      message: `Outlook status unavailable: ${outlookError.message}`,
+    });
+  }
   if (outlook) {
     const syncStatus = String(outlook.sync_status ?? "idle");
     const status = syncStatus === "error" ? "error" : "connected";
@@ -105,6 +138,13 @@ export async function getWorkspaceProviderReadiness(params: {
     });
   }
 
+  if (slackError) {
+    oauthReadiness.set("slack", {
+      status: "error",
+      last_synced_at: null,
+      message: `Slack status unavailable: ${slackError.message}`,
+    });
+  }
   if (slack) {
     const syncStatus = String(slack.sync_status ?? "idle");
     const needsReconnect = Boolean(slack.needs_reconnect);
@@ -150,6 +190,15 @@ export async function getWorkspaceProviderReadiness(params: {
     }
 
     const found = byProvider.get(provider);
+    if (!found && connectionsError) {
+      return {
+        provider,
+        status: "error",
+        capabilities: INTEGRATION_DEFAULT_CAPABILITIES[provider],
+        last_synced_at: null,
+        message: `Status unavailable: ${connectionsError.message}`,
+      };
+    }
     if (!found) {
       return {
         provider,

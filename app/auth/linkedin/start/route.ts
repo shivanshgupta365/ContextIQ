@@ -1,6 +1,7 @@
 import { cookies } from "next/headers";
 import { NextRequest, NextResponse } from "next/server";
 
+import { getSessionUser } from "@/lib/auth/session";
 import {
   buildLinkedInConnectUrl,
   buildLinkedInOAuthState,
@@ -9,6 +10,13 @@ import {
 export async function GET(request: NextRequest) {
   const next = request.nextUrl.searchParams.get("next");
   const safeNext = next?.startsWith("/") ? next : "/overview";
+  const user = await getSessionUser();
+  if (!user) {
+    return NextResponse.redirect(
+      new URL(`/auth/sign-in?next=${encodeURIComponent(safeNext)}`, request.url),
+    );
+  }
+
   const state = buildLinkedInOAuthState();
   const cookieStore = await cookies();
   const isProd = process.env.NODE_ENV === "production";

@@ -16,6 +16,7 @@ import {
   recordIntegrationActionEvent,
 } from "@/lib/integrations/rate-limit";
 import { logIntegrationEvent } from "@/lib/integrations/telemetry";
+import { upsertIntegrationConnectionStatus } from "@/lib/integrations/connections";
 import { generateGeminiText } from "@/lib/gemini/client";
 import {
   addMemories,
@@ -34,6 +35,7 @@ import {
   runActionSchema,
   sendGmailFollowUpSchema,
 } from "@/lib/validators/contextiq";
+import { getSupabaseAdminClient } from "@/lib/supabase/admin";
 import type {
   Account,
   ActivityRecord,
@@ -44,6 +46,7 @@ import type {
   GeneratedOutput,
   Note,
   RecalledMemory,
+  IntegrationProvider,
 } from "@/types";
 
 export async function createAccountAction(input: unknown) {
@@ -399,12 +402,57 @@ export async function clearWorkspaceDataAction(formData: FormData) {
   await supabase.from("linkedin_integrations").delete().eq("workspace_id", workspace.id);
   await supabase.from("outlook_integrations").delete().eq("workspace_id", workspace.id);
   await supabase.from("slack_integrations").delete().eq("workspace_id", workspace.id);
+  await supabase
+    .from("workspaces")
+    .update({
+      seed_source: null,
+      seeded_at: null,
+      updated_at: new Date().toISOString(),
+    })
+    .eq("id", workspace.id);
 
   revalidatePath("/settings");
   revalidatePath("/overview");
   revalidatePath("/accounts", "layout");
   revalidatePath("/contacts");
   revalidatePath("/activity");
+}
+
+async function recordIntegrationSyncRun(input: {
+  workspaceId: string;
+  userId: string;
+  provider: IntegrationProvider;
+  status: "ok" | "error";
+  details: unknown;
+  permissionScope: string;
+  errorMessage?: string;
+}) {
+  const admin = getSupabaseAdminClient();
+  const details = (input.details ?? {}) as {
+    imported?: number;
+    skipped?: number;
+    failed?: number;
+  };
+  await admin.from("integration_sync_runs").insert({
+    workspace_id: input.workspaceId,
+    owner_user_id: input.userId,
+    provider: input.provider,
+    status: input.status,
+    imported_count: Number(details.imported ?? 0),
+    skipped_count: Number(details.skipped ?? 0),
+    failed_count: Number(details.failed ?? 0),
+    details: input.details as Record<string, unknown>,
+    source_provider: input.provider,
+    source_object_type: "integration_sync_run",
+    source_object_id: `${input.provider}:${Date.now()}`,
+    dedupe_key: `${input.provider}:sync:${input.workspaceId}:${Date.now()}:${crypto.randomUUID()}`,
+    normalized_payload: {
+      ...(input.errorMessage ? { last_error: input.errorMessage } : {}),
+    },
+    embedding_status: "not_indexed",
+    permission_scope: input.permissionScope,
+    synced_at: new Date().toISOString(),
+  });
 }
 
 export async function syncGmailWorkspaceAction() {
@@ -416,29 +464,66 @@ export async function syncGmailWorkspaceAction() {
     limit: 12,
     windowMinutes: 30,
   });
-  const result = await syncWorkspaceGmailMessages({
-    userId,
-    workspace,
-    maxResults: 25,
-  });
-  await recordIntegrationActionEvent({
-    workspaceId: workspace.id,
-    userId,
-    actionKey: "gmail_sync",
-    metadata: {
-      fetched: result.fetched,
-      imported: result.imported,
-      skipped: result.skipped,
-      failed: result.failed,
-    },
-  });
+  try {
+    const result = await syncWorkspaceGmailMessages({
+      userId,
+      workspace,
+      maxResults: 25,
+    });
+    await upsertIntegrationConnectionStatus({
+      workspaceId: workspace.id,
+      userId,
+      provider: "gmail",
+      status: "connected",
+      permissionScope: "gmail.readonly gmail.send gmail.compose",
+    });
+    await recordIntegrationSyncRun({
+      workspaceId: workspace.id,
+      userId,
+      provider: "gmail",
+      status: "ok",
+      details: result,
+      permissionScope: "gmail.readonly gmail.send gmail.compose",
+    });
+    await recordIntegrationActionEvent({
+      workspaceId: workspace.id,
+      userId,
+      actionKey: "gmail_sync",
+      metadata: {
+        fetched: result.fetched,
+        imported: result.imported,
+        skipped: result.skipped,
+        failed: result.failed,
+      },
+    });
 
-  revalidatePath("/overview");
-  revalidatePath("/activity");
-  revalidatePath("/contacts");
-  revalidatePath("/accounts", "layout");
+    revalidatePath("/overview");
+    revalidatePath("/activity");
+    revalidatePath("/contacts");
+    revalidatePath("/accounts", "layout");
 
-  return result;
+    return result;
+  } catch (error) {
+    const message = error instanceof Error ? error.message : "Gmail sync failed";
+    await upsertIntegrationConnectionStatus({
+      workspaceId: workspace.id,
+      userId,
+      provider: "gmail",
+      status: "error",
+      permissionScope: "gmail.readonly gmail.send gmail.compose",
+      lastError: message,
+    });
+    await recordIntegrationSyncRun({
+      workspaceId: workspace.id,
+      userId,
+      provider: "gmail",
+      status: "error",
+      details: { imported: 0, skipped: 0, failed: 1 },
+      permissionScope: "gmail.readonly gmail.send gmail.compose",
+      errorMessage: message,
+    });
+    throw error;
+  }
 }
 
 export async function triggerGmailWorkspaceSyncAction() {
@@ -454,29 +539,66 @@ export async function syncLinkedInWorkspaceAction() {
     limit: 12,
     windowMinutes: 30,
   });
-  const result = await syncWorkspaceLinkedInSignals({
-    userId,
-    workspace,
-    maxContacts: 25,
-  });
-  await recordIntegrationActionEvent({
-    workspaceId: workspace.id,
-    userId,
-    actionKey: "linkedin_sync",
-    metadata: {
-      scanned: result.scanned,
-      imported: result.imported,
-      skipped: result.skipped,
-      failed: result.failed,
-    },
-  });
+  try {
+    const result = await syncWorkspaceLinkedInSignals({
+      userId,
+      workspace,
+      maxContacts: 25,
+    });
+    await upsertIntegrationConnectionStatus({
+      workspaceId: workspace.id,
+      userId,
+      provider: "linkedin",
+      status: "connected",
+      permissionScope: "openid profile email",
+    });
+    await recordIntegrationSyncRun({
+      workspaceId: workspace.id,
+      userId,
+      provider: "linkedin",
+      status: "ok",
+      details: result,
+      permissionScope: "openid profile email",
+    });
+    await recordIntegrationActionEvent({
+      workspaceId: workspace.id,
+      userId,
+      actionKey: "linkedin_sync",
+      metadata: {
+        scanned: result.scanned,
+        imported: result.imported,
+        skipped: result.skipped,
+        failed: result.failed,
+      },
+    });
 
-  revalidatePath("/overview");
-  revalidatePath("/activity");
-  revalidatePath("/contacts");
-  revalidatePath("/accounts", "layout");
+    revalidatePath("/overview");
+    revalidatePath("/activity");
+    revalidatePath("/contacts");
+    revalidatePath("/accounts", "layout");
 
-  return result;
+    return result;
+  } catch (error) {
+    const message = error instanceof Error ? error.message : "LinkedIn sync failed";
+    await upsertIntegrationConnectionStatus({
+      workspaceId: workspace.id,
+      userId,
+      provider: "linkedin",
+      status: "error",
+      permissionScope: "openid profile email",
+      lastError: message,
+    });
+    await recordIntegrationSyncRun({
+      workspaceId: workspace.id,
+      userId,
+      provider: "linkedin",
+      status: "error",
+      details: { imported: 0, skipped: 0, failed: 1 },
+      permissionScope: "openid profile email",
+      errorMessage: message,
+    });
+    throw error;
+  }
 }
 
 export async function triggerLinkedInWorkspaceSyncAction() {
@@ -492,29 +614,66 @@ export async function syncOutlookWorkspaceAction() {
     limit: 12,
     windowMinutes: 30,
   });
-  const result = await syncWorkspaceOutlookMessages({
-    userId,
-    workspace,
-    maxResults: 25,
-  });
-  await recordIntegrationActionEvent({
-    workspaceId: workspace.id,
-    userId,
-    actionKey: "outlook_sync",
-    metadata: {
-      fetched: result.fetched,
-      imported: result.imported,
-      skipped: result.skipped,
-      failed: result.failed,
-    },
-  });
+  try {
+    const result = await syncWorkspaceOutlookMessages({
+      userId,
+      workspace,
+      maxResults: 25,
+    });
+    await upsertIntegrationConnectionStatus({
+      workspaceId: workspace.id,
+      userId,
+      provider: "outlook",
+      status: "connected",
+      permissionScope: "openid profile email offline_access Mail.Read User.Read",
+    });
+    await recordIntegrationSyncRun({
+      workspaceId: workspace.id,
+      userId,
+      provider: "outlook",
+      status: "ok",
+      details: result,
+      permissionScope: "openid profile email offline_access Mail.Read User.Read",
+    });
+    await recordIntegrationActionEvent({
+      workspaceId: workspace.id,
+      userId,
+      actionKey: "outlook_sync",
+      metadata: {
+        fetched: result.fetched,
+        imported: result.imported,
+        skipped: result.skipped,
+        failed: result.failed,
+      },
+    });
 
-  revalidatePath("/overview");
-  revalidatePath("/activity");
-  revalidatePath("/contacts");
-  revalidatePath("/accounts", "layout");
+    revalidatePath("/overview");
+    revalidatePath("/activity");
+    revalidatePath("/contacts");
+    revalidatePath("/accounts", "layout");
 
-  return result;
+    return result;
+  } catch (error) {
+    const message = error instanceof Error ? error.message : "Outlook sync failed";
+    await upsertIntegrationConnectionStatus({
+      workspaceId: workspace.id,
+      userId,
+      provider: "outlook",
+      status: "error",
+      permissionScope: "openid profile email offline_access Mail.Read User.Read",
+      lastError: message,
+    });
+    await recordIntegrationSyncRun({
+      workspaceId: workspace.id,
+      userId,
+      provider: "outlook",
+      status: "error",
+      details: { imported: 0, skipped: 0, failed: 1 },
+      permissionScope: "openid profile email offline_access Mail.Read User.Read",
+      errorMessage: message,
+    });
+    throw error;
+  }
 }
 
 export async function triggerOutlookWorkspaceSyncAction() {
@@ -530,30 +689,71 @@ export async function syncSlackWorkspaceAction() {
     limit: 12,
     windowMinutes: 30,
   });
-  const result = await syncWorkspaceSlackSignals({
-    userId,
-    workspace,
-    maxChannels: 8,
-    maxMessagesPerChannel: 10,
-  });
-  await recordIntegrationActionEvent({
-    workspaceId: workspace.id,
-    userId,
-    actionKey: "slack_sync",
-    metadata: {
-      scanned: result.scanned,
-      imported: result.imported,
-      skipped: result.skipped,
-      failed: result.failed,
-    },
-  });
+  try {
+    const result = await syncWorkspaceSlackSignals({
+      userId,
+      workspace,
+      maxChannels: 8,
+      maxMessagesPerChannel: 10,
+    });
+    await upsertIntegrationConnectionStatus({
+      workspaceId: workspace.id,
+      userId,
+      provider: "slack",
+      status: "connected",
+      permissionScope:
+        "channels:history groups:history im:history mpim:history users:read channels:read groups:read im:read mpim:read",
+    });
+    await recordIntegrationSyncRun({
+      workspaceId: workspace.id,
+      userId,
+      provider: "slack",
+      status: "ok",
+      details: result,
+      permissionScope:
+        "channels:history groups:history im:history mpim:history users:read channels:read groups:read im:read mpim:read",
+    });
+    await recordIntegrationActionEvent({
+      workspaceId: workspace.id,
+      userId,
+      actionKey: "slack_sync",
+      metadata: {
+        scanned: result.scanned,
+        imported: result.imported,
+        skipped: result.skipped,
+        failed: result.failed,
+      },
+    });
 
-  revalidatePath("/overview");
-  revalidatePath("/activity");
-  revalidatePath("/contacts");
-  revalidatePath("/accounts", "layout");
+    revalidatePath("/overview");
+    revalidatePath("/activity");
+    revalidatePath("/contacts");
+    revalidatePath("/accounts", "layout");
 
-  return result;
+    return result;
+  } catch (error) {
+    const message = error instanceof Error ? error.message : "Slack sync failed";
+    await upsertIntegrationConnectionStatus({
+      workspaceId: workspace.id,
+      userId,
+      provider: "slack",
+      status: "error",
+      permissionScope:
+        "channels:history groups:history im:history mpim:history users:read channels:read groups:read im:read mpim:read",
+      lastError: message,
+    });
+    await recordIntegrationSyncRun({
+      workspaceId: workspace.id,
+      userId,
+      provider: "slack",
+      status: "error",
+      details: { imported: 0, skipped: 0, failed: 1 },
+      permissionScope:
+        "channels:history groups:history im:history mpim:history users:read channels:read groups:read im:read mpim:read",
+      errorMessage: message,
+    });
+    throw error;
+  }
 }
 
 export async function triggerSlackWorkspaceSyncAction() {
