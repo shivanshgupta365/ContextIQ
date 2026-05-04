@@ -6,10 +6,7 @@ import {
   getAccountPageData,
   getWorkspaceAccounts,
   getWorkspaceContext,
-  getWorkspaceGmailStatus,
-  getWorkspaceLinkedInStatus,
-  getWorkspaceOutlookStatus,
-  getWorkspaceSlackStatus,
+  getWorkspaceIntegrationStatuses,
 } from "@/lib/data/contextiq";
 
 export default async function AccountRoute({
@@ -19,46 +16,33 @@ export default async function AccountRoute({
 }) {
   const { accountId } = await params;
 
-  const result = await Promise.all([
-    getWorkspaceContext(),
-    getWorkspaceAccounts(),
-    getAccountPageData(accountId),
-    getWorkspaceGmailStatus(),
-    getWorkspaceLinkedInStatus(),
-    getWorkspaceOutlookStatus(),
-    getWorkspaceSlackStatus(),
-  ]).catch(() => null);
-
-  if (!result) {
+  const accountResult = await getAccountPageData(accountId).catch(() => null);
+  if (!accountResult) {
     notFound();
   }
 
-  const [
-    { workspace, profile },
-    accounts,
-    accountData,
-    gmailStatus,
-    linkedInStatus,
-    outlookStatus,
-    slackStatus,
-  ] = result;
+  const [{ workspace, profile }, accounts, integrationStatuses] = await Promise.all([
+    getWorkspaceContext(),
+    getWorkspaceAccounts(),
+    getWorkspaceIntegrationStatuses(),
+  ]);
 
   return (
     <WorkspaceShell
       activeView="accounts"
-      headerLabel={accountData.account.name}
+      headerLabel={accountResult.account.name}
       accounts={accounts}
       profileName={profile.full_name || profile.email || "ContextIQ"}
-      gmailStatus={gmailStatus}
-      linkedInStatus={linkedInStatus}
-      outlookStatus={outlookStatus}
-      slackStatus={slackStatus}
+      gmailStatus={integrationStatuses.gmailStatus}
+      linkedInStatus={integrationStatuses.linkedInStatus}
+      outlookStatus={integrationStatuses.outlookStatus}
+      slackStatus={integrationStatuses.slackStatus}
       activeAccountId={accountId}
     >
       <AccountPageClient
         workspaceId={workspace.id}
         allAccounts={accounts}
-        initialData={accountData}
+        initialData={accountResult}
       />
     </WorkspaceShell>
   );

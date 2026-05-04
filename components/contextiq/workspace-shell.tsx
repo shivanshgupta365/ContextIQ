@@ -23,13 +23,8 @@ import {
 
 import { ContextIQLogo } from "@/components/contextiq/logo";
 import { IntegrationStatusBanner } from "@/components/contextiq/integration-status-banner";
-import {
-  signOutAction,
-  triggerGmailWorkspaceSyncAction,
-  triggerLinkedInWorkspaceSyncAction,
-  triggerOutlookWorkspaceSyncAction,
-  triggerSlackWorkspaceSyncAction,
-} from "@/lib/actions/contextiq";
+import { ProviderToolbar } from "@/components/contextiq/provider-toolbar";
+import { signOutAction } from "@/lib/actions/contextiq";
 import { cn, formatRelativeDate, getInitials } from "@/lib/utils";
 import type {
   Account,
@@ -52,7 +47,7 @@ const navItems = [
     icon: LayoutDashboard,
     view: "overview",
   },
-  { href: null, label: "Accounts", icon: Briefcase, view: "accounts" },
+  { href: "/accounts" as Route, label: "Accounts", icon: Briefcase, view: "accounts" },
   {
     href: "/contacts" as Route,
     label: "Contacts",
@@ -167,20 +162,7 @@ export function WorkspaceShell({
         <div className="flex-1 overflow-y-auto p-3">
           <div className="space-y-1">
             {effectiveNavItems.map((item) =>
-              item.href === null ? (
-                <div
-                  key={item.view}
-                  className={cn(
-                    "flex w-full items-center gap-3 rounded-lg border px-3 py-2 text-[14px] font-medium",
-                    activeView === "accounts"
-                      ? "border-slate-200 bg-white text-slate-900 shadow-sm"
-                      : "border-transparent text-slate-500",
-                  )}
-                >
-                  <item.icon size={16} className="text-slate-400" />
-                  Accounts
-                </div>
-              ) : (
+              (
                 <Link
                   key={item.view}
                   href={`${basePath}${item.href}` as Route}
@@ -290,111 +272,13 @@ export function WorkspaceShell({
 
           <div className="flex items-center gap-4">
             {showSignOut ? (
-              <div className="flex flex-col items-end gap-1">
-                <div className="flex items-center gap-2">
-                  {gmailConnected ? (
-                    <form action={triggerGmailWorkspaceSyncAction} className="flex items-center gap-2">
-                      <span className="hidden rounded-md border border-slate-200 bg-slate-50 px-2 py-1 text-[11px] font-bold text-slate-600 md:inline">
-                        Gmail connected
-                      </span>
-                      <button className="inline-flex items-center gap-1 rounded-md border border-slate-200 bg-white px-3 py-1.5 text-[12px] font-bold text-slate-700 transition-colors hover:bg-slate-50">
-                        <Mail size={13} />
-                        Sync
-                      </button>
-                    </form>
-                  ) : (
-                    <Link
-                      href={`/auth/sign-in?intent=gmail_connect&next=${encodeURIComponent(`${basePath || ""}/overview`)}` as Route}
-                      className="inline-flex items-center gap-1 rounded-md border border-slate-200 bg-white px-3 py-1.5 text-[12px] font-bold text-slate-700 transition-colors hover:bg-slate-50"
-                    >
-                      <Mail size={13} />
-                      Connect Gmail
-                    </Link>
-                  )}
-
-                  {linkedInConnected ? (
-                    <form action={triggerLinkedInWorkspaceSyncAction} className="flex items-center gap-2">
-                      <button className="inline-flex items-center gap-1 rounded-md border border-slate-200 bg-white px-3 py-1.5 text-[12px] font-bold text-slate-700 transition-colors hover:bg-slate-50">
-                        <Link2 size={13} />
-                        Sync
-                      </button>
-                    </form>
-                  ) : (
-                    <Link
-                      href={`/auth/linkedin/start?next=${encodeURIComponent(`${basePath || ""}/overview`)}` as Route}
-                      className="inline-flex items-center gap-1 rounded-md border border-slate-200 bg-white px-3 py-1.5 text-[12px] font-bold text-slate-700 transition-colors hover:bg-slate-50"
-                    >
-                      <Link2 size={13} />
-                      Connect LinkedIn
-                    </Link>
-                  )}
-
-                  {outlookConnected ? (
-                    <form action={triggerOutlookWorkspaceSyncAction} className="flex items-center gap-2">
-                      <button className="inline-flex items-center gap-1 rounded-md border border-slate-200 bg-white px-3 py-1.5 text-[12px] font-bold text-slate-700 transition-colors hover:bg-slate-50">
-                        <Mail size={13} />
-                        Sync Outlook
-                      </button>
-                    </form>
-                  ) : (
-                    <Link
-                      href={`/auth/sign-in?intent=outlook_connect&next=${encodeURIComponent(`${basePath || ""}/overview`)}` as Route}
-                      className="inline-flex items-center gap-1 rounded-md border border-slate-200 bg-white px-3 py-1.5 text-[12px] font-bold text-slate-700 transition-colors hover:bg-slate-50"
-                    >
-                      <Mail size={13} />
-                      Connect Outlook
-                    </Link>
-                  )}
-
-                  {slackConnected ? (
-                    <form action={triggerSlackWorkspaceSyncAction} className="flex items-center gap-2">
-                      <button className="inline-flex items-center gap-1 rounded-md border border-slate-200 bg-white px-3 py-1.5 text-[12px] font-bold text-slate-700 transition-colors hover:bg-slate-50">
-                        <MessageSquare size={13} />
-                        Sync Slack
-                      </button>
-                    </form>
-                  ) : (
-                    <Link
-                      href={`/auth/slack/start?next=${encodeURIComponent(`${basePath || ""}/overview`)}` as Route}
-                      className="inline-flex items-center gap-1 rounded-md border border-slate-200 bg-white px-3 py-1.5 text-[12px] font-bold text-slate-700 transition-colors hover:bg-slate-50"
-                    >
-                      <MessageSquare size={13} />
-                      Connect Slack
-                    </Link>
-                  )}
-                </div>
-
-                <div className="flex flex-wrap items-center justify-end gap-2 text-[10px] font-medium">
-                  {gmailStatus?.last_error ? (
-                    <span className="text-rose-500">Gmail sync error</span>
-                  ) : gmailStatus?.last_synced_at ? (
-                    <span className="text-slate-400">
-                      Gmail: {formatRelativeDate(gmailStatus.last_synced_at)}
-                    </span>
-                  ) : null}
-                  {linkedInStatus?.last_error ? (
-                    <span className="text-rose-500">LinkedIn sync error</span>
-                  ) : linkedInStatus?.last_synced_at ? (
-                    <span className="text-slate-400">
-                      LinkedIn: {formatRelativeDate(linkedInStatus.last_synced_at)}
-                    </span>
-                  ) : null}
-                  {outlookStatus?.last_error ? (
-                    <span className="text-rose-500">Outlook sync error</span>
-                  ) : outlookStatus?.last_synced_at ? (
-                    <span className="text-slate-400">
-                      Outlook: {formatRelativeDate(outlookStatus.last_synced_at)}
-                    </span>
-                  ) : null}
-                  {slackStatus?.last_error ? (
-                    <span className="text-rose-500">Slack sync error</span>
-                  ) : slackStatus?.last_synced_at ? (
-                    <span className="text-slate-400">
-                      Slack: {formatRelativeDate(slackStatus.last_synced_at)}
-                    </span>
-                  ) : null}
-                </div>
-              </div>
+              <ProviderToolbar
+                basePath={basePath}
+                gmailStatus={gmailStatus}
+                linkedInStatus={linkedInStatus}
+                outlookStatus={outlookStatus}
+                slackStatus={slackStatus}
+              />
             ) : null}
 
             <div className="group relative">

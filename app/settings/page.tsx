@@ -5,7 +5,6 @@ import { ContextRail } from "@/components/contextiq/context-rail";
 import { WorkspaceShell } from "@/components/contextiq/workspace-shell";
 import {
   clearWorkspaceDataAction,
-  importDemoWorkspaceDataAction,
   signOutAction,
   triggerGmailWorkspaceSyncAction,
   triggerLinkedInWorkspaceSyncAction,
@@ -16,24 +15,20 @@ import {
 import {
   getWorkspaceAccounts,
   getWorkspaceContext,
-  getWorkspaceGmailStatus,
-  getWorkspaceLinkedInStatus,
-  getWorkspaceOutlookStatus,
+  getWorkspaceIntegrationStatuses,
   getWorkspaceRailMemories,
-  getWorkspaceSlackStatus,
 } from "@/lib/data/contextiq";
 
 export default async function SettingsRoute() {
-  const [context, accounts, railMemories, gmailStatus, linkedInStatus, outlookStatus, slackStatus] =
+  const [context, accounts, railMemories, integrationStatuses] =
     await Promise.all([
       getWorkspaceContext(),
       getWorkspaceAccounts(),
       getWorkspaceRailMemories(),
-      getWorkspaceGmailStatus(),
-      getWorkspaceLinkedInStatus(),
-      getWorkspaceOutlookStatus(),
-      getWorkspaceSlackStatus(),
+      getWorkspaceIntegrationStatuses(),
     ]);
+
+  const { gmailStatus, linkedInStatus, outlookStatus, slackStatus } = integrationStatuses;
 
   const gmailConnected = Boolean(gmailStatus.connected);
   const linkedInConnected = Boolean(linkedInStatus.connected);
@@ -186,11 +181,6 @@ export default async function SettingsRoute() {
         <section className="rounded-2xl border border-slate-200 bg-white p-6">
           <h2 className="text-sm font-semibold uppercase tracking-wider text-slate-500">Data Controls</h2>
           <div className="mt-4 flex flex-wrap items-center gap-3">
-            <form action={importDemoWorkspaceDataAction}>
-              <button className="h-10 rounded-lg border border-slate-200 px-4 text-sm font-semibold text-slate-700 hover:bg-slate-50">
-                Import demo dataset
-              </button>
-            </form>
             <form action={clearWorkspaceDataAction} className="flex items-center gap-2">
               <input
                 name="confirm_clear"
@@ -204,7 +194,7 @@ export default async function SettingsRoute() {
             </form>
           </div>
           <p className="mt-3 text-xs text-slate-500">
-            Demo import is explicit and idempotent. Clear action removes CRM and integration sync records for this workspace.
+            Clear action removes live CRM, projections, sync artifacts, and integration records for this workspace.
           </p>
         </section>
 

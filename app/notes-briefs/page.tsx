@@ -5,24 +5,18 @@ import {
   getNotesBriefsSurfaceData,
   getWorkspaceAccounts,
   getWorkspaceContext,
-  getWorkspaceGmailStatus,
-  getWorkspaceLinkedInStatus,
-  getWorkspaceOutlookStatus,
+  getWorkspaceIntegrationStatuses,
   getWorkspaceRailMemories,
-  getWorkspaceSlackStatus,
 } from "@/lib/data/contextiq";
 
 export default async function NotesBriefsRoute() {
-  const [{ profile }, accounts, railMemories, notesData, gmailStatus, linkedInStatus, outlookStatus, slackStatus] =
+  const [{ profile }, accounts, railMemories, notesData, integrationStatuses] =
     await Promise.all([
       getWorkspaceContext(),
       getWorkspaceAccounts(),
       getWorkspaceRailMemories(),
       getNotesBriefsSurfaceData(),
-      getWorkspaceGmailStatus(),
-      getWorkspaceLinkedInStatus(),
-      getWorkspaceOutlookStatus(),
-      getWorkspaceSlackStatus(),
+      getWorkspaceIntegrationStatuses(),
     ]);
 
   return (
@@ -31,10 +25,10 @@ export default async function NotesBriefsRoute() {
       headerLabel="Notes / Briefs"
       accounts={accounts}
       profileName={profile.full_name || profile.email || "ContextIQ"}
-      gmailStatus={gmailStatus}
-      linkedInStatus={linkedInStatus}
-      outlookStatus={outlookStatus}
-      slackStatus={slackStatus}
+      gmailStatus={integrationStatuses.gmailStatus}
+      linkedInStatus={integrationStatuses.linkedInStatus}
+      outlookStatus={integrationStatuses.outlookStatus}
+      slackStatus={integrationStatuses.slackStatus}
       rail={<ContextRail memories={railMemories} />}
     >
       <NotesBriefsSurface

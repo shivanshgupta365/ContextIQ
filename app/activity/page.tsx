@@ -5,11 +5,8 @@ import {
   getWorkspaceAccounts,
   getWorkspaceActivity,
   getWorkspaceContext,
-  getWorkspaceGmailStatus,
-  getWorkspaceLinkedInStatus,
-  getWorkspaceOutlookStatus,
+  getWorkspaceIntegrationStatuses,
   getWorkspaceRailMemories,
-  getWorkspaceSlackStatus,
 } from "@/lib/data/contextiq";
 
 export default async function ActivityRoute() {
@@ -18,19 +15,13 @@ export default async function ActivityRoute() {
     accounts,
     activities,
     railMemories,
-    gmailStatus,
-    linkedInStatus,
-    outlookStatus,
-    slackStatus,
+    integrationStatuses,
   ] = await Promise.all([
     getWorkspaceContext(),
     getWorkspaceAccounts(),
     getWorkspaceActivity(),
     getWorkspaceRailMemories(),
-    getWorkspaceGmailStatus(),
-    getWorkspaceLinkedInStatus(),
-    getWorkspaceOutlookStatus(),
-    getWorkspaceSlackStatus(),
+    getWorkspaceIntegrationStatuses(),
   ]);
 
   return (
@@ -39,10 +30,10 @@ export default async function ActivityRoute() {
       headerLabel="Activity"
       accounts={accounts}
       profileName={profile.full_name || profile.email || "ContextIQ"}
-      gmailStatus={gmailStatus}
-      linkedInStatus={linkedInStatus}
-      outlookStatus={outlookStatus}
-      slackStatus={slackStatus}
+      gmailStatus={integrationStatuses.gmailStatus}
+      linkedInStatus={integrationStatuses.linkedInStatus}
+      outlookStatus={integrationStatuses.outlookStatus}
+      slackStatus={integrationStatuses.slackStatus}
       rail={<ContextRail memories={railMemories} />}
     >
       <ActivityPage activities={activities} accounts={accounts} />

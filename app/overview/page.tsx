@@ -3,23 +3,17 @@ import { OverviewPage } from "@/components/contextiq/overview-page";
 import { WorkspaceShell } from "@/components/contextiq/workspace-shell";
 import {
   getWorkspaceAccounts,
-  getWorkspaceGmailStatus,
-  getWorkspaceLinkedInStatus,
-  getWorkspaceOutlookStatus,
+  getWorkspaceIntegrationStatuses,
   getWorkspaceOverviewData,
   getWorkspaceRailMemories,
-  getWorkspaceSlackStatus,
 } from "@/lib/data/contextiq";
 
 export default async function OverviewRoute() {
-  const [overviewData, accounts, railMemories, gmailStatus, linkedInStatus, outlookStatus, slackStatus] = await Promise.all([
+  const [overviewData, accounts, railMemories, integrationStatuses] = await Promise.all([
     getWorkspaceOverviewData(),
     getWorkspaceAccounts(),
     getWorkspaceRailMemories(),
-    getWorkspaceGmailStatus(),
-    getWorkspaceLinkedInStatus(),
-    getWorkspaceOutlookStatus(),
-    getWorkspaceSlackStatus(),
+    getWorkspaceIntegrationStatuses(),
   ]);
 
   return (
@@ -28,10 +22,10 @@ export default async function OverviewRoute() {
       headerLabel="Overview"
       accounts={accounts}
       profileName={overviewData.profile.full_name || overviewData.profile.email || "ContextIQ"}
-      gmailStatus={gmailStatus}
-      linkedInStatus={linkedInStatus}
-      outlookStatus={outlookStatus}
-      slackStatus={slackStatus}
+      gmailStatus={integrationStatuses.gmailStatus}
+      linkedInStatus={integrationStatuses.linkedInStatus}
+      outlookStatus={integrationStatuses.outlookStatus}
+      slackStatus={integrationStatuses.slackStatus}
       rail={<ContextRail memories={railMemories} />}
     >
       <OverviewPage data={overviewData} />

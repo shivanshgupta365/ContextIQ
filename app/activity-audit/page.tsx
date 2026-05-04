@@ -5,24 +5,18 @@ import {
   getActionsAuditSurfaceData,
   getWorkspaceAccounts,
   getWorkspaceContext,
-  getWorkspaceGmailStatus,
-  getWorkspaceLinkedInStatus,
-  getWorkspaceOutlookStatus,
+  getWorkspaceIntegrationStatuses,
   getWorkspaceRailMemories,
-  getWorkspaceSlackStatus,
 } from "@/lib/data/contextiq";
 
 export default async function ActivityAuditRoute() {
-  const [{ profile }, accounts, railMemories, auditData, gmailStatus, linkedInStatus, outlookStatus, slackStatus] =
+  const [{ profile }, accounts, railMemories, auditData, integrationStatuses] =
     await Promise.all([
       getWorkspaceContext(),
       getWorkspaceAccounts(),
       getWorkspaceRailMemories(),
       getActionsAuditSurfaceData(),
-      getWorkspaceGmailStatus(),
-      getWorkspaceLinkedInStatus(),
-      getWorkspaceOutlookStatus(),
-      getWorkspaceSlackStatus(),
+      getWorkspaceIntegrationStatuses(),
     ]);
 
   return (
@@ -31,10 +25,10 @@ export default async function ActivityAuditRoute() {
       headerLabel="Activity / Audit"
       accounts={accounts}
       profileName={profile.full_name || profile.email || "ContextIQ"}
-      gmailStatus={gmailStatus}
-      linkedInStatus={linkedInStatus}
-      outlookStatus={outlookStatus}
-      slackStatus={slackStatus}
+      gmailStatus={integrationStatuses.gmailStatus}
+      linkedInStatus={integrationStatuses.linkedInStatus}
+      outlookStatus={integrationStatuses.outlookStatus}
+      slackStatus={integrationStatuses.slackStatus}
       rail={<ContextRail memories={railMemories} />}
     >
       <ActivityAuditSurface

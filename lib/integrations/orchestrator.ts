@@ -52,8 +52,10 @@ async function getApiWorkspaceContext(): Promise<{ userId: string; workspace: Wo
 
 export async function connectIntegrationProvider(
   provider: IntegrationProvider,
+  nextPath = "/overview",
 ): Promise<ProviderResult> {
   const { userId, workspace } = await getApiWorkspaceContext();
+  const safeNextPath = nextPath.startsWith("/") ? nextPath : "/overview";
 
   if (provider === "gmail") {
     await upsertIntegrationConnectionStatus({
@@ -67,7 +69,7 @@ export async function connectIntegrationProvider(
       ok: true,
       mode: "redirect",
       message: "Redirecting to Google OAuth.",
-      redirectUrl: `/auth/sign-in?intent=gmail_connect&next=${encodeURIComponent("/overview")}`,
+      redirectUrl: `/auth/sign-in?intent=gmail_connect&next=${encodeURIComponent(safeNextPath)}`,
     };
   }
 
@@ -83,7 +85,7 @@ export async function connectIntegrationProvider(
       ok: true,
       mode: "redirect",
       message: "Redirecting to LinkedIn OAuth.",
-      redirectUrl: `/auth/linkedin/start?next=${encodeURIComponent("/overview")}`,
+      redirectUrl: `/auth/linkedin/start?next=${encodeURIComponent(safeNextPath)}`,
     };
   }
 
@@ -93,13 +95,13 @@ export async function connectIntegrationProvider(
       userId,
       provider,
       status: "pending_approval",
-      permissionScope: "openid profile email offline_access Mail.Read User.Read",
+      permissionScope: "openid profile email offline_access Mail.Read Calendars.Read User.Read",
     });
     return {
       ok: true,
       mode: "redirect",
       message: "Redirecting to Microsoft OAuth.",
-      redirectUrl: `/auth/sign-in?intent=outlook_connect&next=${encodeURIComponent("/overview")}`,
+      redirectUrl: `/auth/sign-in?intent=outlook_connect&next=${encodeURIComponent(safeNextPath)}`,
     };
   }
 
@@ -116,7 +118,7 @@ export async function connectIntegrationProvider(
       ok: true,
       mode: "redirect",
       message: "Redirecting to Slack OAuth.",
-      redirectUrl: `/auth/slack/start?next=${encodeURIComponent("/overview")}`,
+      redirectUrl: `/auth/slack/start?next=${encodeURIComponent(safeNextPath)}`,
     };
   }
 

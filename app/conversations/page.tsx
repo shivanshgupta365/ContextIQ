@@ -5,11 +5,8 @@ import {
   getConversationsSurfaceData,
   getWorkspaceAccounts,
   getWorkspaceContext,
-  getWorkspaceGmailStatus,
-  getWorkspaceLinkedInStatus,
-  getWorkspaceOutlookStatus,
+  getWorkspaceIntegrationStatuses,
   getWorkspaceRailMemories,
-  getWorkspaceSlackStatus,
 } from "@/lib/data/contextiq";
 
 export default async function ConversationsRoute() {
@@ -18,19 +15,13 @@ export default async function ConversationsRoute() {
     accounts,
     railMemories,
     conversationsData,
-    gmailStatus,
-    linkedInStatus,
-    outlookStatus,
-    slackStatus,
+    integrationStatuses,
   ] = await Promise.all([
     getWorkspaceContext(),
     getWorkspaceAccounts(),
     getWorkspaceRailMemories(),
     getConversationsSurfaceData(),
-    getWorkspaceGmailStatus(),
-    getWorkspaceLinkedInStatus(),
-    getWorkspaceOutlookStatus(),
-    getWorkspaceSlackStatus(),
+    getWorkspaceIntegrationStatuses(),
   ]);
 
   return (
@@ -39,10 +30,10 @@ export default async function ConversationsRoute() {
       headerLabel="Conversations"
       accounts={accounts}
       profileName={profile.full_name || profile.email || "ContextIQ"}
-      gmailStatus={gmailStatus}
-      linkedInStatus={linkedInStatus}
-      outlookStatus={outlookStatus}
-      slackStatus={slackStatus}
+      gmailStatus={integrationStatuses.gmailStatus}
+      linkedInStatus={integrationStatuses.linkedInStatus}
+      outlookStatus={integrationStatuses.outlookStatus}
+      slackStatus={integrationStatuses.slackStatus}
       rail={<ContextRail memories={railMemories} />}
     >
       <ConversationsSurface
