@@ -196,7 +196,7 @@ export const getWorkspaceContext = cache(async (): Promise<{
     .eq("id", user.id)
     .single();
 
-  if (profileError) throw profileError;
+  if (profileError && profileError.code !== "42501") throw profileError;
 
   const { data: membership, error: membershipError } = await supabase
     .from("workspace_members")
@@ -210,7 +210,24 @@ export const getWorkspaceContext = cache(async (): Promise<{
   return {
     userId: user.id,
     workspace: membership.workspace as Workspace,
-    profile: profile as Profile,
+    profile:
+      (profile as Profile | null) ??
+      ({
+        id: user.id,
+        email: user.email ?? null,
+        full_name:
+          typeof user.user_metadata?.full_name === "string"
+            ? user.user_metadata.full_name
+            : typeof user.user_metadata?.name === "string"
+              ? user.user_metadata.name
+              : null,
+        avatar_url:
+          typeof user.user_metadata?.avatar_url === "string"
+            ? user.user_metadata.avatar_url
+            : null,
+        created_at: new Date().toISOString(),
+        updated_at: new Date().toISOString(),
+      } as Profile),
   };
 });
 
@@ -689,8 +706,8 @@ export function deriveRecentMemorySignals(
 }
 
 export async function getProviderReadinessData(): Promise<ProviderReadinessStatus[]> {
-  const { workspace } = await getWorkspaceContext();
-  return getWorkspaceProviderReadiness({ workspaceId: workspace.id });
+  const { workspace, userId } = await getWorkspaceContext();
+  return getWorkspaceProviderReadiness({ workspaceId: workspace.id, userId });
 }
 
 export async function getPeopleSurfaceData() {

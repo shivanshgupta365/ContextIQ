@@ -41,6 +41,7 @@ const serverEnvSchema = publicEnvSchema.extend({
   ZOOM_CLIENT_SECRET: z.string().min(1).optional(),
   CRON_SYNC_SECRET: z.string().min(16).optional(),
   CRON_SECRET: z.string().min(16).optional(),
+  SEED_REAL_WORKSPACE_ON_SIGNUP: z.enum(["true", "false"]).optional(),
 });
 
 export function getPublicEnv() {
@@ -86,5 +87,6 @@ export function getServerEnv() {
     ZOOM_CLIENT_SECRET: process.env.ZOOM_CLIENT_SECRET,
     CRON_SYNC_SECRET: process.env.CRON_SYNC_SECRET,
     CRON_SECRET: process.env.CRON_SECRET,
+    SEED_REAL_WORKSPACE_ON_SIGNUP: process.env.SEED_REAL_WORKSPACE_ON_SIGNUP,
   });
 }

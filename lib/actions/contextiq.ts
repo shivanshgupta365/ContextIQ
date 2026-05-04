@@ -4,6 +4,7 @@ import { revalidatePath } from "next/cache";
 
 import { filterMemoriesForContact } from "@/lib/context-memory";
 import { getAccountPageData, getWorkspaceContext } from "@/lib/data/contextiq";
+import { seedDemoWorkspace } from "@/lib/data/demo-seed";
 import { syncWorkspaceGmailMessages } from "@/lib/gmail/sync";
 import { syncWorkspaceLinkedInSignals } from "@/lib/linkedin/sync";
 import { syncWorkspaceOutlookMessages } from "@/lib/outlook/sync";
@@ -340,6 +341,70 @@ export async function signOutAction() {
   const supabase = await getSupabaseServerClient();
   await supabase.auth.signOut();
   revalidatePath("/", "layout");
+}
+
+export async function updateProfileNameAction(formData: FormData) {
+  const { userId } = await getWorkspaceContext();
+  const fullName = String(formData.get("full_name") ?? "").trim();
+  const supabase = await getSupabaseServerClient();
+
+  const { error } = await supabase
+    .from("profiles")
+    .update({
+      full_name: fullName.length > 0 ? fullName : null,
+      updated_at: new Date().toISOString(),
+    })
+    .eq("id", userId);
+
+  if (error) throw error;
+
+  revalidatePath("/settings");
+  revalidatePath("/overview");
+}
+
+export async function importDemoWorkspaceDataAction() {
+  const { userId, workspace } = await getWorkspaceContext();
+  await seedDemoWorkspace({
+    workspaceId: workspace.id,
+    userId,
+    hydraTenantId: workspace.hydradb_tenant_id,
+  });
+
+  revalidatePath("/settings");
+  revalidatePath("/overview");
+  revalidatePath("/accounts", "layout");
+  revalidatePath("/contacts");
+  revalidatePath("/activity");
+}
+
+export async function clearWorkspaceDataAction(formData: FormData) {
+  const confirmValue = String(formData.get("confirm_clear") ?? "").trim();
+  if (confirmValue !== "CLEAR") {
+    throw new Error("Confirmation text must be CLEAR.");
+  }
+
+  const { workspace } = await getWorkspaceContext();
+  const supabase = await getSupabaseServerClient();
+
+  await supabase.from("generated_outputs").delete().eq("workspace_id", workspace.id);
+  await supabase.from("activities").delete().eq("workspace_id", workspace.id);
+  await supabase.from("notes").delete().eq("workspace_id", workspace.id);
+  await supabase.from("contacts").delete().eq("workspace_id", workspace.id);
+  await supabase.from("accounts").delete().eq("workspace_id", workspace.id);
+
+  await supabase.from("integration_action_events").delete().eq("workspace_id", workspace.id);
+  await supabase.from("integration_sync_runs").delete().eq("workspace_id", workspace.id);
+  await supabase.from("integration_connections").delete().eq("workspace_id", workspace.id);
+  await supabase.from("gmail_integrations").delete().eq("workspace_id", workspace.id);
+  await supabase.from("linkedin_integrations").delete().eq("workspace_id", workspace.id);
+  await supabase.from("outlook_integrations").delete().eq("workspace_id", workspace.id);
+  await supabase.from("slack_integrations").delete().eq("workspace_id", workspace.id);
+
+  revalidatePath("/settings");
+  revalidatePath("/overview");
+  revalidatePath("/accounts", "layout");
+  revalidatePath("/contacts");
+  revalidatePath("/activity");
 }
 
 export async function syncGmailWorkspaceAction() {

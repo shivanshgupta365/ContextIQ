@@ -2,6 +2,7 @@ import { cookies } from "next/headers";
 import { NextRequest, NextResponse } from "next/server";
 
 import { getWorkspaceContext } from "@/lib/data/contextiq";
+import { upsertIntegrationConnectionStatus } from "@/lib/integrations/connections";
 import { exchangeSlackCodeForToken, fetchSlackAuthIdentity } from "@/lib/slack/client";
 import { upsertSlackIntegrationTokens } from "@/lib/slack/integration-store";
 
@@ -62,9 +63,31 @@ export async function GET(request: NextRequest) {
       botScopes: token.botScopes,
       needsReconnect: !token.userAccessToken,
     });
+    await upsertIntegrationConnectionStatus({
+      workspaceId: workspace.id,
+      userId,
+      provider: "slack",
+      status: "connected",
+      permissionScope:
+        "channels:history groups:history im:history mpim:history users:read channels:read groups:read im:read mpim:read",
+    });
 
     return NextResponse.redirect(new URL(`${safeNext}?integration=slack&status=connected`, request.url));
   } catch (callbackError) {
+    try {
+      const { workspace, userId } = await getWorkspaceContext();
+      await upsertIntegrationConnectionStatus({
+        workspaceId: workspace.id,
+        userId,
+        provider: "slack",
+        status: "error",
+        permissionScope:
+          "channels:history groups:history im:history mpim:history users:read channels:read groups:read im:read mpim:read",
+        lastError: callbackError instanceof Error ? callbackError.message : "Slack connect failed",
+      });
+    } catch {
+      // Ignore status update failures on callback error path.
+    }
     const message = callbackError instanceof Error ? callbackError.message : "Slack connect failed";
     return NextResponse.redirect(
       new URL(`/overview?integration=slack&status=error&message=${encodeURIComponent(message)}`, request.url),

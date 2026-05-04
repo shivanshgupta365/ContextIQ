@@ -86,11 +86,13 @@ export async function bootstrapUserWorkspace(params: {
 
   if (memberError) throw memberError;
 
-  await seedDemoWorkspace({
-    workspaceId,
-    userId: params.userId,
-    hydraTenantId: hydraTenantId,
-  });
+  if (env.SEED_REAL_WORKSPACE_ON_SIGNUP === "true") {
+    await seedDemoWorkspace({
+      workspaceId,
+      userId: params.userId,
+      hydraTenantId: hydraTenantId,
+    });
+  }
 
   return workspace as Workspace;
 }

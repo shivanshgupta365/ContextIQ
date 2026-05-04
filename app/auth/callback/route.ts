@@ -4,6 +4,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { bootstrapUserWorkspace } from "@/lib/auth/bootstrap";
 import { getPublicEnv } from "@/lib/env";
 import { upsertGmailIntegrationTokens } from "@/lib/gmail/integration-store";
+import { upsertIntegrationConnectionStatus } from "@/lib/integrations/connections";
 import { fetchMicrosoftProfile } from "@/lib/outlook/client";
 import { upsertOutlookIntegrationTokens } from "@/lib/outlook/integration-store";
 
@@ -91,6 +92,13 @@ export async function GET(request: NextRequest) {
         "https://www.googleapis.com/auth/gmail.compose",
       ],
     });
+    await upsertIntegrationConnectionStatus({
+      workspaceId: workspace.id,
+      userId: user.id,
+      provider: "gmail",
+      status: "connected",
+      permissionScope: "gmail.readonly gmail.send gmail.compose",
+    });
   }
 
   if (
@@ -110,6 +118,13 @@ export async function GET(request: NextRequest) {
       refreshToken: providerRefreshToken ?? null,
       tokenType: "Bearer",
       scopes: ["openid", "profile", "email", "offline_access", "Mail.Read", "User.Read"],
+    });
+    await upsertIntegrationConnectionStatus({
+      workspaceId: workspace.id,
+      userId: user.id,
+      provider: "outlook",
+      status: "connected",
+      permissionScope: "openid profile email offline_access Mail.Read User.Read",
     });
   }
 

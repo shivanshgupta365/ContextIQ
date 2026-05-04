@@ -5,6 +5,7 @@ import { syncWorkspaceLinkedInSignals } from "@/lib/linkedin/sync";
 import { syncWorkspaceOutlookMessages } from "@/lib/outlook/sync";
 import { syncWorkspaceSlackSignals } from "@/lib/slack/sync";
 import { INTEGRATION_DEFAULT_CAPABILITIES, providerDisplayName } from "@/lib/integrations/catalog";
+import { upsertIntegrationConnectionStatus } from "@/lib/integrations/connections";
 import { getSupabaseServerClient } from "@/lib/supabase/server";
 import type {
   CrossToolActionRequest,
@@ -49,50 +50,13 @@ async function getApiWorkspaceContext(): Promise<{ userId: string; workspace: Wo
   };
 }
 
-async function upsertConnection(params: {
-  workspaceId: string;
-  userId: string;
-  provider: IntegrationProvider;
-  status: IntegrationConnectionStatus;
-  permissionScope?: string | null;
-}) {
-  const supabase = await getSupabaseServerClient();
-  const dedupeKey = buildDedupeKey([
-    params.workspaceId,
-    params.userId,
-    params.provider,
-    "integration_connection",
-  ]);
-
-  await supabase.from("integration_connections").upsert(
-    {
-      workspace_id: params.workspaceId,
-      owner_user_id: params.userId,
-      provider: params.provider,
-      display_name: providerDisplayName(params.provider),
-      status: params.status,
-      capabilities: INTEGRATION_DEFAULT_CAPABILITIES[params.provider],
-      permission_scope: params.permissionScope ?? null,
-      source_provider: params.provider,
-      source_object_type: "integration_connection",
-      source_object_id: `${params.provider}:${params.userId}`,
-      dedupe_key: dedupeKey,
-      normalized_payload: {},
-      embedding_status: "not_indexed",
-      synced_at: new Date().toISOString(),
-      updated_at: new Date().toISOString(),
-    },
-    { onConflict: "workspace_id,provider,owner_user_id" },
-  );
-}
-
 export async function connectIntegrationProvider(
   provider: IntegrationProvider,
 ): Promise<ProviderResult> {
   const { userId, workspace } = await getApiWorkspaceContext();
 
   if (provider === "gmail") {
-    await upsertConnection({
+    await upsertIntegrationConnectionStatus({
       workspaceId: workspace.id,
       userId,
       provider,
@@ -108,7 +72,7 @@ export async function connectIntegrationProvider(
   }
 
   if (provider === "linkedin") {
-    await upsertConnection({
+    await upsertIntegrationConnectionStatus({
       workspaceId: workspace.id,
       userId,
       provider,
@@ -124,7 +88,7 @@ export async function connectIntegrationProvider(
   }
 
   if (provider === "outlook") {
-    await upsertConnection({
+    await upsertIntegrationConnectionStatus({
       workspaceId: workspace.id,
       userId,
       provider,
@@ -140,7 +104,7 @@ export async function connectIntegrationProvider(
   }
 
   if (provider === "slack") {
-    await upsertConnection({
+    await upsertIntegrationConnectionStatus({
       workspaceId: workspace.id,
       userId,
       provider,
@@ -156,7 +120,7 @@ export async function connectIntegrationProvider(
     };
   }
 
-  await upsertConnection({
+  await upsertIntegrationConnectionStatus({
     workspaceId: workspace.id,
     userId,
     provider,
@@ -195,104 +159,173 @@ export async function syncIntegrationProvider(provider: IntegrationProvider): Pr
   };
 
   if (provider === "gmail") {
-    const sync = await syncWorkspaceGmailMessages({
-      userId,
-      workspace,
-      maxResults: 25,
-    });
-    await upsertConnection({
-      workspaceId: workspace.id,
-      userId,
-      provider,
-      status: "connected",
-      permissionScope: "gmail.readonly gmail.send gmail.compose",
-    });
-    await supabase.from("integration_sync_runs").insert({
-      ...runBase,
-      status: "ok",
-      imported_count: sync.imported,
-      skipped_count: sync.skipped,
-      failed_count: sync.failed,
-      details: sync,
-    });
-    return { ok: true, mode: "connected", message: "Gmail sync completed." };
+    try {
+      const sync = await syncWorkspaceGmailMessages({
+        userId,
+        workspace,
+        maxResults: 25,
+      });
+      await upsertIntegrationConnectionStatus({
+        workspaceId: workspace.id,
+        userId,
+        provider,
+        status: "connected",
+        permissionScope: "gmail.readonly gmail.send gmail.compose",
+      });
+      await supabase.from("integration_sync_runs").insert({
+        ...runBase,
+        status: "ok",
+        imported_count: sync.imported,
+        skipped_count: sync.skipped,
+        failed_count: sync.failed,
+        details: sync,
+      });
+      return {
+        ok: true,
+        mode: "connected",
+        message: `Gmail sync completed. Imported ${sync.imported}, skipped ${sync.skipped}, failed ${sync.failed}.`,
+      };
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Gmail sync failed";
+      await upsertIntegrationConnectionStatus({
+        workspaceId: workspace.id,
+        userId,
+        provider,
+        status: "error",
+        permissionScope: "gmail.readonly gmail.send gmail.compose",
+        lastError: message,
+      });
+      throw error;
+    }
   }
 
   if (provider === "linkedin") {
-    const sync = await syncWorkspaceLinkedInSignals({
-      userId,
-      workspace,
-      maxContacts: 25,
-    });
-    await upsertConnection({
-      workspaceId: workspace.id,
-      userId,
-      provider,
-      status: "connected",
-      permissionScope: "openid profile email",
-    });
-    await supabase.from("integration_sync_runs").insert({
-      ...runBase,
-      status: "ok",
-      imported_count: sync.imported,
-      skipped_count: sync.skipped,
-      failed_count: sync.failed,
-      details: sync,
-    });
-    return { ok: true, mode: "connected", message: "LinkedIn sync completed." };
+    try {
+      const sync = await syncWorkspaceLinkedInSignals({
+        userId,
+        workspace,
+        maxContacts: 25,
+      });
+      await upsertIntegrationConnectionStatus({
+        workspaceId: workspace.id,
+        userId,
+        provider,
+        status: "connected",
+        permissionScope: "openid profile email",
+      });
+      await supabase.from("integration_sync_runs").insert({
+        ...runBase,
+        status: "ok",
+        imported_count: sync.imported,
+        skipped_count: sync.skipped,
+        failed_count: sync.failed,
+        details: sync,
+      });
+      return {
+        ok: true,
+        mode: "connected",
+        message: `LinkedIn sync completed. Imported ${sync.imported}, skipped ${sync.skipped}, failed ${sync.failed}.`,
+      };
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "LinkedIn sync failed";
+      await upsertIntegrationConnectionStatus({
+        workspaceId: workspace.id,
+        userId,
+        provider,
+        status: "error",
+        permissionScope: "openid profile email",
+        lastError: message,
+      });
+      throw error;
+    }
   }
 
   if (provider === "outlook") {
-    const sync = await syncWorkspaceOutlookMessages({
-      userId,
-      workspace,
-      maxResults: 25,
-    });
-    await upsertConnection({
-      workspaceId: workspace.id,
-      userId,
-      provider,
-      status: "connected",
-      permissionScope: "openid profile email offline_access Mail.Read User.Read",
-    });
-    await supabase.from("integration_sync_runs").insert({
-      ...runBase,
-      status: "ok",
-      imported_count: sync.imported,
-      skipped_count: sync.skipped,
-      failed_count: sync.failed,
-      details: sync,
-    });
-    return { ok: true, mode: "connected", message: "Outlook sync completed." };
+    try {
+      const sync = await syncWorkspaceOutlookMessages({
+        userId,
+        workspace,
+        maxResults: 25,
+      });
+      await upsertIntegrationConnectionStatus({
+        workspaceId: workspace.id,
+        userId,
+        provider,
+        status: "connected",
+        permissionScope: "openid profile email offline_access Mail.Read User.Read",
+      });
+      await supabase.from("integration_sync_runs").insert({
+        ...runBase,
+        status: "ok",
+        imported_count: sync.imported,
+        skipped_count: sync.skipped,
+        failed_count: sync.failed,
+        details: sync,
+      });
+      return {
+        ok: true,
+        mode: "connected",
+        message: `Outlook sync completed. Imported ${sync.imported}, skipped ${sync.skipped}, failed ${sync.failed}.`,
+      };
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Outlook sync failed";
+      await upsertIntegrationConnectionStatus({
+        workspaceId: workspace.id,
+        userId,
+        provider,
+        status: "error",
+        permissionScope: "openid profile email offline_access Mail.Read User.Read",
+        lastError: message,
+      });
+      throw error;
+    }
   }
 
   if (provider === "slack") {
-    const sync = await syncWorkspaceSlackSignals({
-      userId,
-      workspace,
-      maxChannels: 8,
-      maxMessagesPerChannel: 10,
-    });
-    await upsertConnection({
-      workspaceId: workspace.id,
-      userId,
-      provider,
-      status: "connected",
-      permissionScope:
-        "channels:history groups:history im:history mpim:history users:read channels:read groups:read im:read mpim:read",
-    });
-    await supabase.from("integration_sync_runs").insert({
-      ...runBase,
-      status: "ok",
-      imported_count: sync.imported,
-      skipped_count: sync.skipped,
-      failed_count: sync.failed,
-      details: sync,
-    });
-    return { ok: true, mode: "connected", message: "Slack sync completed." };
+    try {
+      const sync = await syncWorkspaceSlackSignals({
+        userId,
+        workspace,
+        maxChannels: 8,
+        maxMessagesPerChannel: 10,
+      });
+      await upsertIntegrationConnectionStatus({
+        workspaceId: workspace.id,
+        userId,
+        provider,
+        status: "connected",
+        permissionScope:
+          "channels:history groups:history im:history mpim:history users:read channels:read groups:read im:read mpim:read",
+      });
+      await supabase.from("integration_sync_runs").insert({
+        ...runBase,
+        status: "ok",
+        imported_count: sync.imported,
+        skipped_count: sync.skipped,
+        failed_count: sync.failed,
+        details: sync,
+      });
+      return {
+        ok: true,
+        mode: "connected",
+        message: `Slack sync completed. Imported ${sync.imported}, skipped ${sync.skipped}, failed ${sync.failed}.`,
+      };
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Slack sync failed";
+      await upsertIntegrationConnectionStatus({
+        workspaceId: workspace.id,
+        userId,
+        provider,
+        status: "error",
+        permissionScope:
+          "channels:history groups:history im:history mpim:history users:read channels:read groups:read im:read mpim:read",
+        lastError: message,
+      });
+      throw error;
+    }
   }
 
-  await upsertConnection({
+  await upsertIntegrationConnectionStatus({
     workspaceId: workspace.id,
     userId,
     provider,
@@ -329,7 +362,7 @@ export async function executeProviderWriteback(params: {
   const isSupported = params.provider === "gmail" || params.provider === "resend";
   const status: IntegrationConnectionStatus = isSupported ? "connected" : "pending_approval";
 
-  await upsertConnection({
+  await upsertIntegrationConnectionStatus({
     workspaceId: workspace.id,
     userId,
     provider: params.provider,

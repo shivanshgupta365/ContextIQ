@@ -2,6 +2,7 @@ import { cookies } from "next/headers";
 import { NextRequest, NextResponse } from "next/server";
 
 import { getWorkspaceContext } from "@/lib/data/contextiq";
+import { upsertIntegrationConnectionStatus } from "@/lib/integrations/connections";
 import {
   exchangeLinkedInCodeForToken,
   fetchLinkedInUserInfo,
@@ -54,6 +55,13 @@ export async function GET(request: NextRequest) {
       tokenType: token.tokenType,
       scopes: token.scopes,
     });
+    await upsertIntegrationConnectionStatus({
+      workspaceId: workspace.id,
+      userId,
+      provider: "linkedin",
+      status: "connected",
+      permissionScope: "openid profile email",
+    });
 
     return NextResponse.redirect(
       new URL(
@@ -62,6 +70,19 @@ export async function GET(request: NextRequest) {
       ),
     );
   } catch (callbackError) {
+    try {
+      const { workspace, userId } = await getWorkspaceContext();
+      await upsertIntegrationConnectionStatus({
+        workspaceId: workspace.id,
+        userId,
+        provider: "linkedin",
+        status: "error",
+        permissionScope: "openid profile email",
+        lastError: callbackError instanceof Error ? callbackError.message : "LinkedIn connect failed",
+      });
+    } catch {
+      // Ignore status update failures on callback error path.
+    }
     const message =
       callbackError instanceof Error ? callbackError.message : "LinkedIn connect failed";
     return NextResponse.redirect(

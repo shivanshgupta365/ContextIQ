@@ -43,6 +43,7 @@ export async function seedDemoWorkspace(input: {
   userId: string;
   hydraTenantId: string;
 }) {
+  // Demo-only dataset used by walk-in and explicit import actions.
   const supabase = getSupabaseAdminClient();
 
   const { count } = await supabase
