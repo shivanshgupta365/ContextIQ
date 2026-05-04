@@ -25,6 +25,7 @@ async function hydraFetch<T>(path: string, init: RequestInit) {
     ...init,
     headers: {
       "Content-Type": "application/json",
+      Authorization: `Bearer ${env.HYDRADB_API_KEY}`,
       "x-api-key": env.HYDRADB_API_KEY,
       ...(init.headers ?? {}),
     },
@@ -56,7 +57,8 @@ export async function ensureHydraTenant(input: EnsureHydraTenantInput) {
     if (
       message.includes("already exists") ||
       message.includes("409") ||
-      message.includes("duplicate")
+      message.includes("duplicate") ||
+      (message.includes("403") && message.includes("plan limit reached"))
     ) {
       return;
     }

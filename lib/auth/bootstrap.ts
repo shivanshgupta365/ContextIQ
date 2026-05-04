@@ -52,12 +52,16 @@ export async function bootstrapUserWorkspace(params: {
   const workspaceId = crypto.randomUUID();
   const fixedTenantId = env.HYDRADB_TENANT_ID?.trim() ?? "";
   const hydraTenantId = fixedTenantId.length > 0 ? fixedTenantId : `workspace_${workspaceId}`;
-
-  await ensureHydraTenant({
-    tenantId: hydraTenantId,
-    tenantName: workspaceName,
-    tenantDescription: `HydraDB tenant for ${params.email ?? params.userId}`,
-  });
+  try {
+    await ensureHydraTenant({
+      tenantId: hydraTenantId,
+      tenantName: workspaceName,
+      tenantDescription: `HydraDB tenant for ${params.email ?? params.userId}`,
+    });
+  } catch (error) {
+    // Do not block sign-in when HydraDB credentials are misconfigured.
+    console.error("Hydra tenant bootstrap failed; continuing without blocking auth", error);
+  }
 
   const { data: workspace, error: workspaceError } = await supabase
     .from("workspaces")
