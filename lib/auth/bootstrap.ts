@@ -10,17 +10,30 @@ export async function bootstrapUserWorkspace(params: {
   email: string | null;
   fullName: string | null;
   avatarUrl: string | null;
+  userSupabaseClient?: any;
 }): Promise<Workspace> {
   const env = getServerEnv();
   const supabase = getSupabaseAdminClient();
 
-  const { error: profileError } = await supabase.from("profiles").upsert({
+  const profilePayload = {
     id: params.userId,
     email: params.email,
     full_name: params.fullName,
     avatar_url: params.avatarUrl,
     updated_at: new Date().toISOString(),
-  });
+  };
+
+  let { error: profileError } = await supabase.from("profiles").upsert(profilePayload);
+
+  if (profileError && params.userSupabaseClient) {
+    const code = (profileError as { code?: string } | null)?.code;
+    if (code === "42501") {
+      const fallbackResult = await params.userSupabaseClient
+        .from("profiles")
+        .upsert(profilePayload);
+      profileError = fallbackResult.error ?? null;
+    }
+  }
 
   if (profileError) throw profileError;
 

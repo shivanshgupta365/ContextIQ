@@ -67,6 +67,7 @@ export async function GET(request: NextRequest) {
       typeof user.user_metadata?.avatar_url === "string"
         ? user.user_metadata.avatar_url
         : null,
+    userSupabaseClient: supabase,
   });
 
   const providerToken = providerSession?.provider_token as string | undefined;
