@@ -1,8 +1,12 @@
 "use client";
 
+import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { useState, useTransition } from "react";
 import { CheckCircle2, Clock3, Search, Send, ShieldAlert } from "lucide-react";
+import type { Route } from "next";
 
+import { NotesBriefsWorkflow } from "@/components/contextiq/notes-briefs-workflow";
 import { Badge, SurfaceCard } from "@/components/contextiq/primitives";
 import { formatDateTime } from "@/lib/utils";
 import type {
@@ -59,40 +63,30 @@ export function ProviderReadinessGrid({
 }
 
 export function CommandCenterSurface({
-  workspaceId,
   readiness,
+  initialQuery,
+  result,
 }: {
-  workspaceId: string;
   readiness: ProviderReadinessStatus[];
+  initialQuery: string;
+  result: { hits: CommandSearchHit[]; degraded: boolean; degraded_reason?: string | null } | null;
 }) {
-  const [query, setQuery] = useState("");
-  const [hits, setHits] = useState<CommandSearchHit[]>([]);
-  const [error, setError] = useState<string | null>(null);
-  const [hasSearched, setHasSearched] = useState(false);
+  const router = useRouter();
+  const [query, setQuery] = useState(initialQuery);
   const [isPending, startTransition] = useTransition();
 
+  const hasSearched = initialQuery.trim().length > 0;
+  const hits = result?.hits ?? [];
+
   const runSearch = () => {
-    startTransition(async () => {
-      setError(null);
-      try {
-        const response = await fetch("/api/command/search", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            workspaceId,
-            query,
-            timeframeDays: 30,
-            limit: 12,
-          }),
-        });
-        const data = await response.json();
-        if (!response.ok) throw new Error(data.message || "Search failed.");
-        setHits(data.hits ?? []);
-        setHasSearched(true);
-      } catch (searchError) {
-        setError(searchError instanceof Error ? searchError.message : "Search failed.");
-        setHasSearched(true);
+    startTransition(() => {
+      const trimmed = query.trim();
+      const params = new URLSearchParams();
+      if (trimmed) {
+        params.set("q", trimmed);
       }
+      const nextHref = params.toString() ? `/command-center?${params.toString()}` : "/command-center";
+      router.push(nextHref as Route);
     });
   };
 
@@ -105,6 +99,12 @@ export function CommandCenterSurface({
               <input
                 value={query}
                 onChange={(event) => setQuery(event.target.value)}
+                onKeyDown={(event) => {
+                  if (event.key === "Enter") {
+                    event.preventDefault();
+                    runSearch();
+                  }
+                }}
                 placeholder="show recent messages and blockers for esyasoft in last 30 days"
                 className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-[14px] font-medium text-slate-800 outline-none focus:border-[#2563EB]/40"
               />
@@ -113,29 +113,38 @@ export function CommandCenterSurface({
                 onClick={runSearch}
                 className="rounded-lg bg-[#2563EB] px-4 py-2 text-[13px] font-bold text-white disabled:opacity-60"
               >
-                Search
+                {isPending ? "Searching..." : "Search"}
               </button>
             </div>
-            {error ? <p className="mt-2 text-[12px] font-medium text-rose-600">{error}</p> : null}
+            {result?.degraded ? (
+              <p className="mt-2 text-[12px] font-medium text-amber-700">
+                Partial results shown. Hydra recall was unavailable
+                {result.degraded_reason ? `: ${result.degraded_reason}` : "."}
+              </p>
+            ) : null}
           </div>
 
           <div className="space-y-3">
             {hits.length === 0 ? (
               <p className="text-[14px] font-medium text-slate-500">
                 {hasSearched
-                  ? "No live records yet; connect and sync Gmail, LinkedIn, Outlook, or Slack."
+                  ? "No live records yet; connect and sync providers, upload a note, or create an account/contact first."
                   : "Run a cross-tool query to retrieve live account context and next actions."}
               </p>
             ) : (
               hits.map((hit) => (
-                <div key={hit.id} className="rounded-xl border border-slate-200 bg-white p-4">
+                <Link
+                  key={hit.id}
+                  href={(hit.href ?? "/command-center") as Route}
+                  className="block rounded-xl border border-slate-200 bg-white p-4 transition-colors hover:border-slate-300 hover:bg-slate-50/60"
+                >
                   <div className="mb-2 flex items-center gap-2">
                     <Badge>{hit.type}</Badge>
                     {hit.provider ? <Badge>{hit.provider}</Badge> : null}
                   </div>
                   <p className="text-[14px] font-bold text-[#0F172A]">{hit.title}</p>
                   <p className="mt-1 text-[13px] font-medium text-slate-600">{hit.snippet}</p>
-                </div>
+                </Link>
               ))
             )}
           </div>
@@ -226,14 +235,25 @@ export function MeetingsSurface({
 }
 
 export function NotesBriefsSurface({
+  workspaceId,
+  accounts,
+  notionReadiness,
   notes,
   documents,
 }: {
+  workspaceId: string;
+  accounts: Array<{ id: string; name: string }>;
+  notionReadiness: ProviderReadinessStatus | null;
   notes: object[];
   documents: object[];
 }) {
   return (
     <div className="mx-auto max-w-6xl px-10 py-10">
+      <NotesBriefsWorkflow
+        workspaceId={workspaceId}
+        accounts={accounts}
+        notionReadiness={notionReadiness}
+      />
       <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
         <SurfaceCard title="Notes" icon={<ShieldAlert size={14} />} memoryCount={notes.length}>
           <SimpleRecordList records={notes} titleKey="title" subtitleKey="source_type" />

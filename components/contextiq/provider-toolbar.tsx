@@ -1,7 +1,7 @@
 "use client";
 
 import { useMemo, useState, useTransition } from "react";
-import { useRouter } from "next/navigation";
+import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { Link2, Mail, MessageSquare, X } from "lucide-react";
 
 import { formatRelativeDate } from "@/lib/utils";
@@ -148,7 +148,11 @@ export function ProviderToolbar({
   slackStatus?: SlackIntegrationStatus | null;
 }) {
   const [toast, setToast] = useState<ToastState>(null);
-  const nextPath = `${basePath || ""}/overview`;
+  const pathname = usePathname();
+  const searchParams = useSearchParams();
+  const nextPath = `${pathname || `${basePath || ""}/overview`}${
+    searchParams.toString() ? `?${searchParams.toString()}` : ""
+  }`;
 
   const footerStatuses = useMemo(
     () =>
@@ -207,7 +211,7 @@ export function ProviderToolbar({
           />
           <ProviderButton
             provider="slack"
-            connected={Boolean(slackStatus?.connected)}
+            connected={Boolean(slackStatus?.connected && !slackStatus?.needs_reconnect)}
             nextPath={nextPath}
             onToast={setToast}
             statusMessage={

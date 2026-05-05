@@ -26,11 +26,12 @@ import type {
   ProviderReadinessStatus,
   Profile,
   RecalledMemory,
+  SlackIntegrationStatus,
   TimelineEvent,
   TimelineItem,
   Workspace,
+  WorkspaceRecentContext,
   WorkspaceOverviewData,
-  SlackIntegrationStatus,
 } from "@/types";
 
 function mapTimelineItems(
@@ -283,6 +284,147 @@ export async function getWorkspaceAccounts() {
   if (error) throw error;
 
   return (data ?? []) as Account[];
+}
+
+export async function getWorkspaceRecentContexts(
+  limit = 6,
+): Promise<WorkspaceRecentContext[]> {
+  const { workspace } = await getWorkspaceContext();
+  const supabase = await getSupabaseServerClient();
+
+  const fallbackAccounts = async () => {
+    const { data: accounts, error } = await supabase
+      .from("accounts")
+      .select("id,name,priority,stage")
+      .eq("workspace_id", workspace.id)
+      .order("updated_at", { ascending: false })
+      .limit(limit);
+
+    if (error) throw error;
+
+    return ((accounts ?? []) as Array<Pick<Account, "id" | "name" | "priority" | "stage">>).map(
+      (account): WorkspaceRecentContext => ({
+        entity_type: "account",
+        entity_id: account.id,
+        title: account.name,
+        subtitle: "Account",
+        href: `/accounts/${account.id}`,
+        accent_tone:
+          account.priority === "critical" || account.stage === "at_risk"
+            ? "critical"
+            : account.priority === "high"
+              ? "high"
+              : "normal",
+      }),
+    );
+  };
+
+  const { data: pins, error: pinsError } = await supabase
+    .from("workspace_context_pins")
+    .select("entity_type,entity_id,title,subtitle,updated_at")
+    .eq("workspace_id", workspace.id)
+    .order("updated_at", { ascending: false })
+    .limit(limit);
+
+  if (pinsError) {
+    if (pinsError.code === "42P01") {
+      return fallbackAccounts();
+    }
+    throw pinsError;
+  }
+
+  if (!pins?.length) {
+    return fallbackAccounts();
+  }
+
+  const typedPins = (pins ?? []) as Array<{
+    entity_type: "account" | "contact";
+    entity_id: string;
+    title: string | null;
+    subtitle: string | null;
+    updated_at: string;
+  }>;
+
+  const accountIds = typedPins
+    .filter((pin) => pin.entity_type === "account")
+    .map((pin) => String(pin.entity_id));
+  const contactIds = typedPins
+    .filter((pin) => pin.entity_type === "contact")
+    .map((pin) => String(pin.entity_id));
+
+  const [{ data: accounts }, { data: contacts }] = await Promise.all([
+    accountIds.length
+      ? supabase
+          .from("accounts")
+          .select("id,name,priority,stage")
+          .eq("workspace_id", workspace.id)
+          .in("id", accountIds)
+      : Promise.resolve({ data: [] as Array<Pick<Account, "id" | "name" | "priority" | "stage">> }),
+    contactIds.length
+      ? supabase
+          .from("contacts")
+          .select("id,account_id,name,title,role_type,importance_level")
+          .eq("workspace_id", workspace.id)
+          .in("id", contactIds)
+      : Promise.resolve({
+          data: [] as Array<
+            Pick<Contact, "id" | "account_id" | "name" | "title" | "role_type" | "importance_level">
+          >,
+        }),
+  ]);
+
+  const accountMap = new Map(
+    ((accounts ?? []) as Array<Pick<Account, "id" | "name" | "priority" | "stage">>).map(
+      (account) => [account.id, account],
+    ),
+  );
+  const contactMap = new Map(
+    ((contacts ?? []) as Array<
+      Pick<Contact, "id" | "account_id" | "name" | "title" | "role_type" | "importance_level">
+    >).map((contact) => [contact.id, contact]),
+  );
+
+  return typedPins.reduce<WorkspaceRecentContext[]>((contexts, pin) => {
+      let context: WorkspaceRecentContext | null = null;
+      if (pin.entity_type === "contact") {
+        const contact = contactMap.get(String(pin.entity_id));
+        if (!contact) return contexts;
+
+        context = {
+          entity_type: "contact" as const,
+          entity_id: contact.id,
+          title: contact.name,
+          subtitle: contact.title || contact.role_type || pin.subtitle || "Contact",
+          href: `/accounts/${contact.account_id}?contact=${encodeURIComponent(contact.id)}`,
+          accent_tone:
+            contact.importance_level === "critical"
+              ? "critical"
+              : contact.importance_level === "high"
+                ? "high"
+                : "normal",
+        } satisfies WorkspaceRecentContext;
+      } else {
+        const account = accountMap.get(String(pin.entity_id));
+        if (!account) return contexts;
+
+        context = {
+          entity_type: "account" as const,
+          entity_id: account.id,
+          title: account.name,
+          subtitle: pin.subtitle || "Account",
+          href: `/accounts/${account.id}`,
+          accent_tone:
+            account.priority === "critical" || account.stage === "at_risk"
+              ? "critical"
+              : account.priority === "high"
+                ? "high"
+                : "normal",
+        } satisfies WorkspaceRecentContext;
+      }
+
+      contexts.push(context);
+      return contexts;
+    }, []);
 }
 
 export async function getWorkspaceContacts() {

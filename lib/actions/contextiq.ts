@@ -35,12 +35,20 @@ import {
   createActivitySchema,
   createContactSchema,
   createNoteSchema,
+  notesBriefTransformSchema,
+  pinWorkspaceContextSchema,
   prepareGmailFollowUpSchema,
   runActionSchema,
   sendGmailFollowUpSchema,
+  saveWorkspaceDocumentSchema,
+  workspaceEntitySearchSchema,
 } from "@/lib/validators/contextiq";
 import { getSupabaseAdminClient } from "@/lib/supabase/admin";
 import {
+  ensureContactForEmail,
+  ensureIdentityAlias,
+  ensureOrganizationForAccount,
+  ensurePersonProjection,
   upsertDocumentProjection,
   upsertSearchIndexEntry,
 } from "@/lib/workspace/projections";
@@ -55,6 +63,8 @@ import type {
   Note,
   RecalledMemory,
   IntegrationProvider,
+  NotesBriefTransformResult,
+  WorkspaceEntitySearchResponse,
 } from "@/types";
 
 function revalidateWorkspaceSurfaces(accountId?: string | null) {
@@ -75,9 +85,144 @@ function revalidateWorkspaceSurfaces(accountId?: string | null) {
   }
 }
 
+async function projectAccountForWorkspace(input: {
+  workspaceId: string;
+  userId: string;
+  account: Account;
+  provider?: IntegrationProvider;
+}) {
+  const provider = input.provider ?? "manual";
+  await ensureOrganizationForAccount({
+    workspaceId: input.workspaceId,
+    userId: input.userId,
+    account: input.account,
+    provider,
+  });
+  await upsertSearchIndexEntry({
+    workspaceId: input.workspaceId,
+    userId: input.userId,
+    entityType: "organization",
+    entityId: input.account.id,
+    title: input.account.name,
+    body: [
+      input.account.name,
+      input.account.domain,
+      input.account.industry,
+      input.account.owner_name,
+      input.account.notes_summary,
+    ]
+      .filter(Boolean)
+      .join("\n"),
+    provider,
+    sourceObjectId: input.account.id,
+    metadata: {
+      account_id: input.account.id,
+      account_name: input.account.name,
+      account_domain: input.account.domain,
+      industry: input.account.industry,
+      owner_name: input.account.owner_name,
+      stage: input.account.stage,
+      priority: input.account.priority,
+    },
+  });
+}
+
+async function projectContactForWorkspace(input: {
+  workspaceId: string;
+  userId: string;
+  account: Account;
+  contact: Contact;
+  provider?: IntegrationProvider;
+}) {
+  const provider = input.provider ?? "manual";
+  const organization = await ensureOrganizationForAccount({
+    workspaceId: input.workspaceId,
+    userId: input.userId,
+    account: input.account,
+    provider,
+  });
+  const person = await ensurePersonProjection({
+    workspaceId: input.workspaceId,
+    userId: input.userId,
+    provider,
+    organizationId: organization.id,
+    contact: input.contact,
+    sourceObjectId: input.contact.id,
+  });
+  if (input.contact.email) {
+    await ensureIdentityAlias({
+      workspaceId: input.workspaceId,
+      userId: input.userId,
+      personId: person.id,
+      provider: "email",
+      aliasType: "email",
+      aliasValue: input.contact.email,
+      sourceProvider: provider,
+      sourceObjectId: input.contact.id,
+    });
+  }
+  if (input.contact.linkedin_url) {
+    await ensureIdentityAlias({
+      workspaceId: input.workspaceId,
+      userId: input.userId,
+      personId: person.id,
+      provider: "linkedin",
+      aliasType: "linkedin_url",
+      aliasValue: input.contact.linkedin_url,
+      sourceProvider: provider,
+      sourceObjectId: input.contact.id,
+    });
+  }
+  await upsertSearchIndexEntry({
+    workspaceId: input.workspaceId,
+    userId: input.userId,
+    entityType: "person",
+    entityId: input.contact.id,
+    title: input.contact.name,
+    body: [
+      input.contact.name,
+      input.contact.email,
+      input.contact.title,
+      input.contact.preference_summary,
+      input.account.name,
+      input.account.domain,
+    ]
+      .filter(Boolean)
+      .join("\n"),
+    provider,
+    sourceObjectId: input.contact.id,
+    metadata: {
+      account_id: input.account.id,
+      account_name: input.account.name,
+      contact_id: input.contact.id,
+      email: input.contact.email,
+      title: input.contact.title,
+      role_type: input.contact.role_type,
+      linkedin_url: input.contact.linkedin_url,
+    },
+  });
+}
+
+function buildDocumentTransformPrompt(input: {
+  mode: NotesBriefTransformResult["mode"];
+  title: string;
+  content: string;
+}) {
+  const instruction =
+    input.mode === "summarize"
+      ? "Summarize the following workspace content into a concise, grounded summary with the most important facts and next actions."
+      : input.mode === "paraphrase"
+        ? "Paraphrase the following workspace content into clearer, tighter prose without dropping important facts."
+        : input.mode === "brief"
+          ? "Turn the following workspace content into a polished internal brief with sections for Objective, Key Points, Risks, and Next Steps."
+          : "Turn the following workspace content into a concise email draft that stays faithful to the source evidence. Do not invent facts.";
+
+  return `${instruction}\n\nTitle: ${input.title}\n\nContent:\n${input.content}`;
+}
+
 export async function createAccountAction(input: unknown) {
   const values = createAccountSchema.parse(input);
-  const { workspace } = await getWorkspaceContext();
+  const { workspace, userId } = await getWorkspaceContext();
 
   if (workspace.id !== values.workspaceId) {
     throw new Error("Workspace mismatch.");
@@ -101,14 +246,23 @@ export async function createAccountAction(input: unknown) {
 
   if (error) throw error;
 
-  revalidatePath("/overview");
+  const account = data as Account;
 
-  return data as Account;
+  await projectAccountForWorkspace({
+    workspaceId: values.workspaceId,
+    userId,
+    account,
+    provider: "manual",
+  });
+
+  revalidateWorkspaceSurfaces(account.id);
+
+  return account;
 }
 
 export async function createContactAction(input: unknown) {
   const values = createContactSchema.parse(input);
-  const { workspace } = await getWorkspaceContext();
+  const { workspace, userId } = await getWorkspaceContext();
 
   if (workspace.id !== values.workspaceId) {
     throw new Error("Workspace mismatch.");
@@ -133,10 +287,27 @@ export async function createContactAction(input: unknown) {
 
   if (error) throw error;
 
-  revalidatePath(`/accounts/${values.accountId}`);
-  revalidatePath("/contacts");
+  const contact = data as Contact;
+  const { data: account } = await supabase
+    .from("accounts")
+    .select("*")
+    .eq("id", values.accountId)
+    .eq("workspace_id", workspace.id)
+    .single();
 
-  return data as Contact;
+  if (account) {
+    await projectContactForWorkspace({
+      workspaceId: values.workspaceId,
+      userId,
+      account: account as Account,
+      contact,
+      provider: "manual",
+    });
+  }
+
+  revalidateWorkspaceSurfaces(values.accountId);
+
+  return contact;
 }
 
 export async function createNoteAction(input: unknown) {
@@ -358,21 +529,41 @@ export async function runComposerAction(input: unknown): Promise<ComposerResult>
     what_changed_recently: `What changed recently for ${pageData.account.name}?`,
   } as const;
 
-  const memories = await fullRecall({
-    tenantId: workspace.hydradb_tenant_id,
-    query: recallQueryMap[values.actionType],
-    filters: {
-      workspace_id: workspace.id,
-      account_id: values.accountId,
-    },
-    topK: 6,
-  });
+  const warnings: string[] = [];
+  let degraded = false;
+  let memories: RecalledMemory[] = [];
+
+  try {
+    memories = await fullRecall({
+      tenantId: workspace.hydradb_tenant_id,
+      query: recallQueryMap[values.actionType],
+      filters: {
+        workspace_id: workspace.id,
+        account_id: values.accountId,
+      },
+      topK: 6,
+    });
+  } catch (error) {
+    degraded = true;
+    warnings.push(
+      `Retrieval degraded to workspace evidence only: ${error instanceof Error ? error.message : "Hydra recall failed."}`,
+    );
+  }
 
   const scopedMemories = filterMemoriesForContact(
     memories.length > 0 ? memories : pageData.memory_rail,
     values.contactId,
     6,
   );
+
+  const hasStructuredEvidence =
+    pageData.notes.length > 0 || pageData.activities.length > 0 || pageData.contacts.length > 0;
+
+  if (scopedMemories.length === 0 && !hasStructuredEvidence) {
+    throw new Error(
+      "No live evidence is available for this account yet. Sync providers or add notes before generating this output.",
+    );
+  }
 
   const prompt = buildActionPrompt({
     actionType: values.actionType,
@@ -384,7 +575,14 @@ export async function runComposerAction(input: unknown): Promise<ComposerResult>
     prompt: values.prompt || null,
   });
 
-  const generation = await generateGeminiText(prompt);
+  let generation: Awaited<ReturnType<typeof generateGeminiText>>;
+  try {
+    generation = await generateGeminiText(prompt);
+  } catch (error) {
+    throw new Error(
+      `Generation failed: ${error instanceof Error ? error.message : "Gemini request failed."}`,
+    );
+  }
   const supabase = await getSupabaseServerClient();
 
   const { data, error } = await supabase
@@ -403,7 +601,9 @@ export async function runComposerAction(input: unknown): Promise<ComposerResult>
     .select("*")
     .single();
 
-  if (error) throw error;
+  if (error) {
+    throw new Error(`Persistence failed: ${error.message}`);
+  }
 
   const generationProvider =
     scopedMemories.find((memory) => memory.metadata.integration_source)?.metadata
@@ -454,6 +654,8 @@ export async function runComposerAction(input: unknown): Promise<ComposerResult>
       recalled_memories_json: scopedMemories,
     },
     memories: scopedMemories,
+    warnings,
+    degraded,
   };
 }
 
@@ -507,6 +709,7 @@ export async function clearWorkspaceDataAction(formData: FormData) {
   const supabase = getSupabaseAdminClient();
 
   for (const table of [
+    "workspace_context_pins",
     "search_index_entries",
     "documents",
     "messages",
@@ -904,6 +1107,369 @@ export async function connectSlackAction() {
   return "/auth/slack/start?next=/overview";
 }
 
+export async function searchWorkspaceEntityCandidatesAction(
+  input: unknown,
+): Promise<WorkspaceEntitySearchResponse> {
+  const values = workspaceEntitySearchSchema.parse(input);
+  const { workspace } = await getWorkspaceContext();
+
+  if (workspace.id !== values.workspaceId) {
+    throw new Error("Workspace mismatch.");
+  }
+
+  const supabase = await getSupabaseServerClient();
+  const normalizedQuery = values.query.trim().toLowerCase();
+
+  const [accountsResult, contactsResult, peopleResult, aliasesResult] = await Promise.all([
+    supabase
+      .from("accounts")
+      .select("id,name,domain,owner_name,stage,priority")
+      .eq("workspace_id", workspace.id)
+      .order("updated_at", { ascending: false })
+      .limit(80),
+    supabase
+      .from("contacts")
+      .select("id,account_id,name,email,title,role_type,linkedin_url")
+      .eq("workspace_id", workspace.id)
+      .order("updated_at", { ascending: false })
+      .limit(120),
+    supabase
+      .from("people")
+      .select("id,contact_id,organization_id,full_name,email,title,source_provider,linkedin_url")
+      .eq("workspace_id", workspace.id)
+      .order("updated_at", { ascending: false })
+      .limit(120),
+    supabase
+      .from("identity_aliases")
+      .select("person_id,provider,alias_value")
+      .eq("workspace_id", workspace.id)
+      .order("updated_at", { ascending: false })
+      .limit(200),
+  ]);
+
+  if (accountsResult.error) throw accountsResult.error;
+  if (contactsResult.error) throw contactsResult.error;
+  if (peopleResult.error) throw peopleResult.error;
+  if (aliasesResult.error) throw aliasesResult.error;
+
+  const accountRows = (accountsResult.data ?? []) as Array<Record<string, unknown>>;
+  const contactRows = (contactsResult.data ?? []) as Array<Record<string, unknown>>;
+  const peopleRows = (peopleResult.data ?? []) as Array<Record<string, unknown>>;
+  const accountMap = new Map(
+    accountRows.map((account) => [String(account.id), account]),
+  );
+  const aliasValuesByPerson = new Map<string, string[]>();
+  for (const alias of (aliasesResult.data ?? []) as Array<Record<string, unknown>>) {
+    const personId = String(alias.person_id ?? "");
+    if (!personId) continue;
+    const current = aliasValuesByPerson.get(personId) ?? [];
+    current.push(String(alias.alias_value ?? ""));
+    aliasValuesByPerson.set(personId, current);
+  }
+
+  const accountCandidates = accountRows
+    .filter((account) =>
+      [
+        account.name,
+        account.domain,
+        account.owner_name,
+        account.stage,
+        account.priority,
+      ]
+        .filter(Boolean)
+        .join(" ")
+        .toLowerCase()
+        .includes(normalizedQuery),
+    )
+    .slice(0, 8)
+    .map((account) => ({
+      kind: "account" as const,
+      id: String(account.id),
+      title: String(account.name ?? "Untitled account"),
+      subtitle: [account.domain, account.owner_name].filter(Boolean).join(" • ") || null,
+      provider: null,
+      account_id: String(account.id),
+      domain: (account.domain as string | null) ?? null,
+    }));
+
+  const personCandidates = [
+    ...peopleRows.map((person) => ({
+      id: String(person.id),
+      contact_id: (person.contact_id as string | null) ?? null,
+      account_id:
+        ((person.contact_id as string | null)
+          ? contactRows.find(
+              (contact) => String(contact.id) === String(person.contact_id),
+            )?.account_id
+          : null) ?? null,
+      title: String(person.full_name ?? "Unknown person"),
+      subtitle:
+        [
+          person.email,
+          person.title,
+          aliasValuesByPerson.get(String(person.id))?.find(Boolean) ?? null,
+        ]
+          .filter(Boolean)
+          .join(" • ") || null,
+      provider: (person.source_provider as IntegrationProvider | null) ?? null,
+      email: (person.email as string | null) ?? null,
+      role_title: (person.title as string | null) ?? null,
+      linkedin_url: (person.linkedin_url as string | null) ?? null,
+      search_blob: [
+        person.full_name,
+        person.email,
+        person.title,
+        aliasValuesByPerson.get(String(person.id))?.join(" "),
+      ]
+        .filter(Boolean)
+        .join(" ")
+        .toLowerCase(),
+    })),
+    ...contactRows.map((contact) => ({
+      id: String(contact.id),
+      contact_id: String(contact.id),
+      account_id: (contact.account_id as string | null) ?? null,
+      title: String(contact.name ?? "Unknown contact"),
+      subtitle: [contact.email, contact.title, contact.role_type]
+        .filter(Boolean)
+        .join(" • ") || null,
+      provider: (contact.linkedin_url ? "linkedin" : null) as IntegrationProvider | null,
+      email: (contact.email as string | null) ?? null,
+      role_title: (contact.title as string | null) ?? null,
+      linkedin_url: (contact.linkedin_url as string | null) ?? null,
+      search_blob: [
+        contact.name,
+        contact.email,
+        contact.title,
+        contact.role_type,
+        contact.linkedin_url,
+      ]
+        .filter(Boolean)
+        .join(" ")
+        .toLowerCase(),
+    })),
+  ]
+    .filter((person) => person.search_blob.includes(normalizedQuery))
+    .filter(
+      (person, index, array) =>
+        array.findIndex(
+          (candidate) =>
+            candidate.contact_id === person.contact_id && candidate.title === person.title,
+        ) === index,
+    )
+    .slice(0, 10)
+    .map((person) => {
+      const account =
+        typeof person.account_id === "string" ? accountMap.get(person.account_id) : null;
+      return {
+        kind: "person" as const,
+        id: person.id,
+        title: person.title,
+        subtitle:
+          [person.subtitle, account ? String(account.name) : null].filter(Boolean).join(" • ") ||
+          null,
+        provider: person.provider,
+        account_id: typeof person.account_id === "string" ? person.account_id : null,
+        contact_id: person.contact_id,
+        email: person.email,
+        role_title: person.role_title,
+        linkedin_url: person.linkedin_url,
+      };
+    });
+
+  return {
+    accounts: accountCandidates,
+    people: personCandidates,
+  };
+}
+
+export async function pinWorkspaceContextAction(input: unknown) {
+  const values = pinWorkspaceContextSchema.parse(input);
+  const { userId, workspace } = await getWorkspaceContext();
+
+  if (workspace.id !== values.workspaceId) {
+    throw new Error("Workspace mismatch.");
+  }
+
+  const supabase = await getSupabaseServerClient();
+  const { error } = await supabase.from("workspace_context_pins").upsert(
+    {
+      workspace_id: workspace.id,
+      owner_user_id: userId,
+      entity_type: values.entityType,
+      entity_id: values.entityId,
+      title: values.title,
+      subtitle: values.subtitle ?? null,
+      updated_at: new Date().toISOString(),
+    },
+    { onConflict: "workspace_id,entity_type,entity_id" },
+  );
+
+  if (error) throw error;
+
+  revalidateWorkspaceSurfaces();
+}
+
+export async function transformNotesBriefContentAction(
+  input: unknown,
+): Promise<NotesBriefTransformResult> {
+  const values = notesBriefTransformSchema.parse(input);
+  const { workspace } = await getWorkspaceContext();
+
+  if (workspace.id !== values.workspaceId) {
+    throw new Error("Workspace mismatch.");
+  }
+
+  const generation = await generateGeminiText(
+    buildDocumentTransformPrompt({
+      mode: values.mode,
+      title: values.title,
+      content: values.content,
+    }),
+  );
+
+  return {
+    title: values.title,
+    content: generation.text,
+    mode: values.mode,
+  };
+}
+
+export async function saveWorkspaceDocumentAction(input: unknown) {
+  const values = saveWorkspaceDocumentSchema.parse(input);
+  const { userId, workspace } = await getWorkspaceContext();
+
+  if (workspace.id !== values.workspaceId) {
+    throw new Error("Workspace mismatch.");
+  }
+
+  const supabase = await getSupabaseServerClient();
+  const account =
+    values.accountId != null
+      ? (
+          await supabase
+            .from("accounts")
+            .select("*")
+            .eq("id", values.accountId)
+            .eq("workspace_id", workspace.id)
+            .maybeSingle()
+        ).data
+      : null;
+  const contact =
+    values.contactId != null
+      ? (
+          await supabase
+            .from("contacts")
+            .select("*")
+            .eq("id", values.contactId)
+            .eq("workspace_id", workspace.id)
+            .maybeSingle()
+        ).data
+      : null;
+
+  const provider: IntegrationProvider = "manual";
+  const document = await upsertDocumentProjection({
+    workspaceId: workspace.id,
+    userId,
+    provider,
+    organizationId: null,
+    personId: null,
+    title: values.title,
+    body: values.content,
+    kind: values.kind,
+    sourceObjectId: `${values.kind}:${crypto.randomUUID()}`,
+    normalizedPayload: {
+      account_id: values.accountId ?? null,
+      contact_id: values.contactId ?? null,
+      save_as_note: values.saveAsNote,
+    },
+  });
+
+  await upsertSearchIndexEntry({
+    workspaceId: workspace.id,
+    userId,
+    entityType: "document",
+    entityId: document.id,
+    title: values.title,
+    body: values.content,
+    provider,
+    sourceObjectId: document.id,
+    metadata: {
+      account_id: values.accountId ?? null,
+      contact_id: values.contactId ?? null,
+      kind: values.kind,
+    },
+  });
+
+  let note: Note | null = null;
+  if (values.saveAsNote && values.accountId) {
+    const { data, error } = await supabase
+      .from("notes")
+      .insert({
+        workspace_id: workspace.id,
+        account_id: values.accountId,
+        contact_id: values.contactId ?? null,
+        author_id: userId,
+        title: values.title,
+        content: values.content,
+        source_type: "uploaded_document",
+        topic: values.kind,
+        importance_level: "medium",
+      })
+      .select("*")
+      .single();
+
+    if (error) throw error;
+    note = data as Note;
+
+    if (account) {
+      try {
+        const hydraResponse = await addMemories({
+          tenantId: workspace.hydradb_tenant_id,
+          memories: [
+            buildNoteMemoryPayload({
+              note,
+              account: account as Account,
+              contact: (contact as Contact | null) ?? null,
+              userId,
+            }),
+          ],
+        });
+        const memoryId = hydraResponse.memory_ids?.[0] ?? hydraResponse.ids?.[0] ?? null;
+        if (memoryId) {
+          await supabase
+            .from("notes")
+            .update({ hydradb_memory_id: memoryId })
+            .eq("id", note.id);
+        }
+      } catch (error) {
+        console.error("HydraDB uploaded document ingestion failed", error);
+      }
+    }
+  }
+
+  if (values.accountId) {
+    await supabase.from("activities").insert({
+      workspace_id: workspace.id,
+      account_id: values.accountId,
+      contact_id: values.contactId ?? null,
+      actor_id: userId,
+      activity_type: "document_uploaded",
+      title: values.title,
+      description: `${values.kind.replaceAll("_", " ")} saved to Notes / Briefs`,
+      metadata: {
+        topic: values.kind,
+        document_id: document.id,
+      },
+      occurred_at: new Date().toISOString(),
+    });
+  }
+
+  revalidateWorkspaceSurfaces(values.accountId ?? null);
+
+  return { documentId: document.id, noteId: note?.id ?? null };
+}
+
 export async function prepareGmailFollowUpAction(
   input: unknown,
 ): Promise<GmailFollowUpDraftResult> {
@@ -922,6 +1488,11 @@ export async function prepareGmailFollowUpAction(
     windowMinutes: 15,
   });
 
+  const { accessToken } = await getValidGmailAccessToken({
+    workspaceId: workspace.id,
+    userId,
+  });
+
   const composerResult = await runComposerAction({
     workspaceId: values.workspaceId,
     accountId: values.accountId,
@@ -933,11 +1504,6 @@ export async function prepareGmailFollowUpAction(
   const accountPage = await getAccountPageData(values.accountId);
   const fallbackSubject = `Follow-up: ${accountPage.account.name}`;
   const suggestedSubject = values.subject?.trim() || fallbackSubject;
-
-  const { accessToken } = await getValidGmailAccessToken({
-    workspaceId: workspace.id,
-    userId,
-  });
 
   await createGmailDraft({
     accessToken,
@@ -1045,7 +1611,11 @@ export async function sendGmailFollowUpAction(input: unknown): Promise<GmailSend
     .select("*")
     .single();
 
-  if (persistedError) throw persistedError;
+  if (persistedError) {
+    throw new Error(
+      `Email sent, but ContextIQ failed to persist the sent draft record: ${persistedError.message}`,
+    );
+  }
 
   const { error: activityError } = await supabase.from("activities").insert({
     workspace_id: workspace.id,
@@ -1066,7 +1636,11 @@ export async function sendGmailFollowUpAction(input: unknown): Promise<GmailSend
     occurred_at: new Date().toISOString(),
   });
 
-  if (activityError) throw activityError;
+  if (activityError) {
+    throw new Error(
+      `Email sent, but ContextIQ failed to persist the activity timeline event: ${activityError.message}`,
+    );
+  }
 
   await recordIntegrationActionEvent({
     workspaceId: workspace.id,

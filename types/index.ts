@@ -232,6 +232,8 @@ export interface ComposerResult {
   memories: RecalledMemory[];
   draft_preview?: string;
   send_confirmation_required?: boolean;
+  warnings?: string[];
+  degraded?: boolean;
 }
 
 export interface GmailIntegration {
@@ -401,6 +403,7 @@ export type IntegrationProvider =
   | "gmail"
   | "outlook"
   | "slack"
+  | "manual"
   | "twilio"
   | "linkedin"
   | "google_calendar"
@@ -588,12 +591,58 @@ export interface CommandSearchHit {
   provider?: IntegrationProvider | null;
   occurredAt?: string | null;
   relevance: number;
+  href?: string | null;
+  accountId?: string | null;
+  contactId?: string | null;
   ref: UnifiedObjectRef;
 }
 
 export interface CommandSearchResponse {
   query: string;
   hits: CommandSearchHit[];
+  degraded: boolean;
+  degraded_reason?: string | null;
+  memories: RecalledMemory[];
+}
+
+export interface WorkspaceRecentContext {
+  entity_type: "account" | "contact";
+  entity_id: string;
+  title: string;
+  subtitle: string | null;
+  href: string;
+  accent_tone: "critical" | "high" | "normal";
+}
+
+export interface WorkspaceEntityCandidate {
+  kind: "account" | "person";
+  id: string;
+  title: string;
+  subtitle: string | null;
+  provider: IntegrationProvider | null;
+  account_id?: string | null;
+  contact_id?: string | null;
+  email?: string | null;
+  domain?: string | null;
+  role_title?: string | null;
+  linkedin_url?: string | null;
+}
+
+export interface WorkspaceEntitySearchResponse {
+  accounts: WorkspaceEntityCandidate[];
+  people: WorkspaceEntityCandidate[];
+}
+
+export type NotesBriefTransformMode =
+  | "summarize"
+  | "paraphrase"
+  | "brief"
+  | "email_draft";
+
+export interface NotesBriefTransformResult {
+  title: string;
+  content: string;
+  mode: NotesBriefTransformMode;
 }
 
 export interface CrossToolActionRequest {

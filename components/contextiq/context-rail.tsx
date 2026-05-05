@@ -107,7 +107,7 @@ export function ContextRail({
         )}
       </div>
       <div className="flex items-center justify-center gap-2 border-t border-slate-200 bg-[#FDFDFD] px-6 py-4 text-[10px] font-bold uppercase tracking-widest text-slate-400">
-        Powered by HydraDB
+        Grounded by HydraDB + workspace evidence
       </div>
     </aside>
   );

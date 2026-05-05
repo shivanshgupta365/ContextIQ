@@ -1,5 +1,7 @@
 import type { IntegrationCapability, IntegrationProvider } from "@/types";
 
+type UserFacingIntegrationProvider = Exclude<IntegrationProvider, "manual">;
+
 const readWrite = (
   read = true,
   write = true,
@@ -14,7 +16,7 @@ const readWrite = (
   { key: "webhook_ingest", supported: webhook },
 ];
 
-export const INTEGRATION_PROVIDERS: IntegrationProvider[] = [
+export const INTEGRATION_PROVIDERS: UserFacingIntegrationProvider[] = [
   "gmail",
   "outlook",
   "slack",
@@ -44,6 +46,7 @@ export const INTEGRATION_DEFAULT_CAPABILITIES: Record<
   intercom: readWrite(true, true),
   notion: readWrite(true, true),
   resend: readWrite(true, true),
+  manual: readWrite(false, false),
 };
 
 export function providerDisplayName(provider: IntegrationProvider) {
@@ -60,6 +63,7 @@ export function providerDisplayName(provider: IntegrationProvider) {
     intercom: "Intercom",
     notion: "Notion",
     resend: "Resend",
+    manual: "Manual upload",
   };
 
   return labels[provider];

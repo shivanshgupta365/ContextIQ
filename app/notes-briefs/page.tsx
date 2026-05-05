@@ -3,6 +3,7 @@ import { NotesBriefsSurface } from "@/components/contextiq/v2-surfaces";
 import { WorkspaceShell } from "@/components/contextiq/workspace-shell";
 import {
   getNotesBriefsSurfaceData,
+  getProviderReadinessData,
   getWorkspaceAccounts,
   getWorkspaceContext,
   getWorkspaceIntegrationStatuses,
@@ -10,14 +11,16 @@ import {
 } from "@/lib/data/contextiq";
 
 export default async function NotesBriefsRoute() {
-  const [{ profile }, accounts, railMemories, notesData, integrationStatuses] =
+  const [{ profile, workspace }, accounts, railMemories, notesData, integrationStatuses, readiness] =
     await Promise.all([
       getWorkspaceContext(),
       getWorkspaceAccounts(),
       getWorkspaceRailMemories(),
       getNotesBriefsSurfaceData(),
       getWorkspaceIntegrationStatuses(),
+      getProviderReadinessData(),
     ]);
+  const notionReadiness = readiness.find((provider) => provider.provider === "notion") ?? null;
 
   return (
     <WorkspaceShell
@@ -32,6 +35,9 @@ export default async function NotesBriefsRoute() {
       rail={<ContextRail memories={railMemories} />}
     >
       <NotesBriefsSurface
+        workspaceId={workspace.id}
+        accounts={accounts}
+        notionReadiness={notionReadiness}
         notes={notesData.notes}
         documents={notesData.documents}
       />

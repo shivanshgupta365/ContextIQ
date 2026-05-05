@@ -11,7 +11,6 @@ import {
   Link2,
   Mail,
   LayoutDashboard,
-  Search,
   Settings,
   Users,
   Activity,
@@ -24,7 +23,9 @@ import {
 import { ContextIQLogo } from "@/components/contextiq/logo";
 import { IntegrationStatusBanner } from "@/components/contextiq/integration-status-banner";
 import { ProviderToolbar } from "@/components/contextiq/provider-toolbar";
+import { WorkspaceSearchBox } from "@/components/contextiq/workspace-search-box";
 import { signOutAction } from "@/lib/actions/contextiq";
+import { getWorkspaceRecentContexts } from "@/lib/data/contextiq";
 import { cn, formatRelativeDate, getInitials } from "@/lib/utils";
 import type {
   Account,
@@ -102,7 +103,7 @@ const walkInNavItems = navItems.filter((item) =>
   ["overview", "accounts", "contacts", "activity"].includes(item.view),
 );
 
-export function WorkspaceShell({
+export async function WorkspaceShell({
   activeView,
   headerLabel,
   accounts,
@@ -143,10 +144,36 @@ export function WorkspaceShell({
   children: ReactNode;
 }) {
   const effectiveNavItems = basePath === "/walk-in" ? walkInNavItems : navItems;
-  const gmailConnected = Boolean(gmailStatus?.connected);
-  const linkedInConnected = Boolean(linkedInStatus?.connected);
-  const outlookConnected = Boolean(outlookStatus?.connected);
-  const slackConnected = Boolean(slackStatus?.connected);
+  const recentContexts =
+    basePath === "/walk-in"
+      ? accounts.slice(0, 6).map((account) => ({
+          entity_type: "account" as const,
+          entity_id: account.id,
+          title: account.name,
+          subtitle: "Account",
+          href: `${basePath}/accounts/${account.id}`,
+          accent_tone:
+            account.priority === "critical" || account.stage === "at_risk"
+              ? "critical"
+              : account.priority === "high"
+                ? "high"
+                : "normal",
+        }))
+      : await getWorkspaceRecentContexts(6).catch(() =>
+          accounts.slice(0, 6).map((account) => ({
+            entity_type: "account" as const,
+            entity_id: account.id,
+            title: account.name,
+            subtitle: "Account",
+            href: `${basePath}/accounts/${account.id}`,
+            accent_tone:
+              account.priority === "critical" || account.stage === "at_risk"
+                ? "critical"
+                : account.priority === "high"
+                  ? "high"
+                  : "normal",
+          })),
+        );
 
   return (
     <div className="flex h-screen overflow-hidden bg-[#FDFDFD] font-sans text-[#0F172A] antialiased">
@@ -187,13 +214,13 @@ export function WorkspaceShell({
             Recent Contexts
           </div>
           <div className="space-y-1">
-            {accounts.slice(0, 6).map((account) => (
+            {recentContexts.map((item) => (
               <Link
-                key={account.id}
-                href={`${basePath}/accounts/${account.id}` as Route}
+                key={`${item.entity_type}-${item.entity_id}`}
+                href={item.href as Route}
                 className={cn(
                   "flex items-center justify-between rounded-lg border px-3 py-2 text-[14px] transition-all duration-200",
-                  activeAccountId === account.id
+                  item.entity_type === "account" && activeAccountId === item.entity_id
                     ? "border-slate-200 bg-white shadow-sm"
                     : "border-transparent hover:bg-slate-200/50",
                 )}
@@ -202,23 +229,30 @@ export function WorkspaceShell({
                   <div
                     className={cn(
                       "h-2 w-2 flex-shrink-0 rounded-full",
-                      account.priority === "critical" || account.stage === "at_risk"
+                      item.accent_tone === "critical"
                         ? "bg-[#B91C1C]"
-                        : account.priority === "high"
+                        : item.accent_tone === "high"
                           ? "bg-[#F97316]"
                           : "bg-[#15803D]",
                     )}
                   />
-                  <span
-                    className={cn(
-                      "truncate",
-                      activeAccountId === account.id
-                        ? "font-semibold text-slate-900"
-                        : "font-medium text-slate-600",
-                    )}
-                  >
-                    {account.name}
-                  </span>
+                  <div className="min-w-0">
+                    <div
+                      className={cn(
+                        "truncate",
+                        item.entity_type === "account" && activeAccountId === item.entity_id
+                          ? "font-semibold text-slate-900"
+                          : "font-medium text-slate-600",
+                      )}
+                    >
+                      {item.title}
+                    </div>
+                    {item.subtitle ? (
+                      <div className="truncate text-[11px] font-medium text-slate-400">
+                        {item.subtitle}
+                      </div>
+                    ) : null}
+                  </div>
                 </div>
               </Link>
             ))}
@@ -281,17 +315,7 @@ export function WorkspaceShell({
               />
             ) : null}
 
-            <div className="group relative">
-              <Search
-                size={14}
-                className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 transition-colors group-focus-within:text-[#2563EB]"
-              />
-              <input
-                type="text"
-                placeholder="Search context..."
-                className="w-56 rounded-lg border border-transparent bg-slate-50 py-2 pl-9 pr-8 text-[14px] font-medium outline-none transition-all duration-300 placeholder:text-slate-400 hover:bg-slate-100 focus:w-72 focus:border-[#2563EB]/30 focus:bg-white focus:ring-2 focus:ring-[#2563EB]/5"
-              />
-            </div>
+            {showSignOut ? <WorkspaceSearchBox /> : null}
             <div className="h-5 w-px bg-slate-200" />
             <button className="rounded-md p-1.5 text-slate-400 transition-colors hover:bg-slate-100 hover:text-slate-900">
               <Bell size={15} />

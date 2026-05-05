@@ -112,3 +112,33 @@ export const sendGmailFollowUpSchema = z.object({
   generatedOutputId: z.uuid(),
   confirmSend: z.literal(true),
 });
+
+export const workspaceEntitySearchSchema = z.object({
+  workspaceId: z.uuid(),
+  query: z.string().min(2).max(160),
+});
+
+export const pinWorkspaceContextSchema = z.object({
+  workspaceId: z.uuid(),
+  entityType: z.enum(["account", "contact"]),
+  entityId: z.uuid(),
+  title: z.string().min(1).max(160),
+  subtitle: z.string().max(240).nullable().optional(),
+});
+
+export const notesBriefTransformSchema = z.object({
+  workspaceId: z.uuid(),
+  title: z.string().min(1).max(180),
+  content: z.string().min(20).max(40000),
+  mode: z.enum(["summarize", "paraphrase", "brief", "email_draft"]),
+});
+
+export const saveWorkspaceDocumentSchema = z.object({
+  workspaceId: z.uuid(),
+  accountId: z.uuid().nullable().optional(),
+  contactId: z.uuid().nullable().optional(),
+  title: z.string().min(1).max(180),
+  content: z.string().min(8).max(40000),
+  kind: z.string().min(2).max(80),
+  saveAsNote: z.boolean().default(false),
+});

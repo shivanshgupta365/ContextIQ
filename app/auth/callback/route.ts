@@ -5,8 +5,11 @@ import { bootstrapUserWorkspace } from "@/lib/auth/bootstrap";
 import { getPublicEnv } from "@/lib/env";
 import { upsertGmailIntegrationTokens } from "@/lib/gmail/integration-store";
 import { upsertIntegrationConnectionStatus } from "@/lib/integrations/connections";
-import { fetchMicrosoftProfile } from "@/lib/outlook/client";
-import { upsertOutlookIntegrationTokens } from "@/lib/outlook/integration-store";
+import { fetchMicrosoftProfile, refreshMicrosoftAccessToken } from "@/lib/outlook/client";
+import {
+  getValidOutlookAccessToken,
+  upsertOutlookIntegrationTokens,
+} from "@/lib/outlook/integration-store";
 
 export async function GET(request: NextRequest) {
   const env = getPublicEnv();
@@ -71,8 +74,13 @@ export async function GET(request: NextRequest) {
     userSupabaseClient: supabase,
   });
 
-  const providerToken = providerSession?.provider_token as string | undefined;
+  let providerToken = providerSession?.provider_token as string | undefined;
   const providerRefreshToken = providerSession?.provider_refresh_token as string | undefined;
+  let providerTokenRecovered = false;
+  let recoveredExpiresAt: string | null = null;
+  let recoveredScopes: string[] | undefined;
+  let recoveredTokenType: string | null = null;
+  let effectiveRefreshToken = providerRefreshToken ?? null;
   const upsertProviderError = async (
     integration: "gmail" | "outlook",
     message: string,
@@ -117,6 +125,67 @@ export async function GET(request: NextRequest) {
   }
 
   if (
+    !providerToken &&
+    provider === "microsoft" &&
+    providerRefreshToken &&
+    (intent === "outlook_connect" || intent === "sign_in")
+  ) {
+    try {
+      const refreshed = await refreshMicrosoftAccessToken({
+        refreshToken: providerRefreshToken,
+      });
+      providerToken = refreshed.accessToken;
+      providerTokenRecovered = true;
+      recoveredExpiresAt = refreshed.expiresAt;
+      recoveredScopes = refreshed.scopes;
+      recoveredTokenType = refreshed.tokenType;
+      effectiveRefreshToken = refreshed.refreshToken;
+    } catch (error) {
+      await upsertProviderError(
+        "outlook",
+        error instanceof Error ? `provider_token_recovery_failed:${error.message}` : "provider_token_recovery_failed",
+        "openid profile email offline_access Mail.Read Calendars.Read User.Read",
+      );
+    }
+  }
+
+  if (
+    !providerToken &&
+    provider === "microsoft" &&
+    intent === "outlook_connect"
+  ) {
+    try {
+      const existing = await getValidOutlookAccessToken({
+        workspaceId: workspace.id,
+        userId: user.id,
+      });
+      if (existing.accessToken) {
+        await upsertIntegrationConnectionStatus({
+          workspaceId: workspace.id,
+          userId: user.id,
+          provider: "outlook",
+          status: "connected",
+          permissionScope:
+            "openid profile email offline_access Mail.Read Calendars.Read User.Read",
+          lastError: null,
+        });
+        return NextResponse.redirect(
+          new URL(
+            `${safeNextPath}?integration=outlook&status=connected&message=existing_tokens_reused`,
+            request.url,
+          ),
+        );
+      }
+    } catch (error) {
+      await upsertProviderError(
+        "outlook",
+        error instanceof Error ? `existing_token_recovery_failed:${error.message}` : "existing_token_recovery_failed",
+        "openid profile email offline_access Mail.Read Calendars.Read User.Read",
+      );
+    }
+  }
+
+  if (
     providerToken &&
     provider === "google" &&
     (intent === "gmail_connect" || intent === "sign_in")
@@ -157,17 +226,21 @@ export async function GET(request: NextRequest) {
       userId: user.id,
       email: microsoftProfile?.email ?? user.email ?? null,
       accessToken: providerToken,
-      refreshToken: providerRefreshToken ?? null,
-      tokenType: "Bearer",
-      scopes: [
-        "openid",
-        "profile",
-        "email",
-        "offline_access",
-        "Mail.Read",
-        "Calendars.Read",
-        "User.Read",
-      ],
+      refreshToken: effectiveRefreshToken,
+      tokenType: recoveredTokenType ?? "Bearer",
+      expiresAt: recoveredExpiresAt,
+      scopes:
+        recoveredScopes && recoveredScopes.length > 0
+          ? recoveredScopes
+          : [
+              "openid",
+              "profile",
+              "email",
+              "offline_access",
+              "Mail.Read",
+              "Calendars.Read",
+              "User.Read",
+            ],
     });
     await upsertIntegrationConnectionStatus({
       workspaceId: workspace.id,
@@ -175,6 +248,7 @@ export async function GET(request: NextRequest) {
       provider: "outlook",
       status: "connected",
       permissionScope: "openid profile email offline_access Mail.Read Calendars.Read User.Read",
+      lastError: providerTokenRecovered ? null : undefined,
     });
   }
 
@@ -192,7 +266,9 @@ export async function GET(request: NextRequest) {
     );
     return NextResponse.redirect(
       new URL(
-        `${safeNextPath}?integration=${integration}&status=error&message=missing_provider_token`,
+        `${safeNextPath}?integration=${integration}&status=error&message=${
+          integration === "outlook" ? "provider_token_recovery_failed" : "missing_provider_token"
+        }`,
         request.url,
       ),
     );

@@ -5,6 +5,17 @@ import { useSearchParams } from "next/navigation";
 
 function decodeMessage(input: string | null) {
   if (!input) return null;
+  const normalized = input.trim();
+  const knownMessages: Record<string, string> = {
+    missing_provider_token: "Provider token missing from callback response",
+    provider_token_recovery_failed: "Supabase did not return a usable Microsoft access token",
+    existing_tokens_reused: "Reused the existing stored Outlook session",
+    use_microsoft_for_outlook: "Use Microsoft sign-in for Outlook connection",
+    use_google_for_gmail: "Use Google sign-in for Gmail connection",
+  };
+  if (knownMessages[normalized]) {
+    return knownMessages[normalized];
+  }
   return input
     .split(",")
     .filter(Boolean)
