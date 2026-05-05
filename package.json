@@ -8,7 +8,8 @@
     "start": "next start",
     "lint": "eslint .",
     "typecheck": "tsc --noEmit",
-    "seed:demo": "tsx -r tsconfig-paths/register scripts/seed-demo.ts"
+    "seed:demo": "tsx -r tsconfig-paths/register scripts/seed-demo.ts",
+    "verify:rollout": "tsx scripts/verify-rollout.ts"
   },
   "keywords": [],
   "author": "",

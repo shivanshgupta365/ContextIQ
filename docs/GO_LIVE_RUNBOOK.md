@@ -13,7 +13,10 @@ Create a Supabase project and apply migrations in this exact order:
 5. `supabase/migrations/20260430_ai_native_workspace.sql`
 6. `supabase/migrations/20260502_outlook_slack_integrations.sql`
 7. `supabase/migrations/20260503_set_fixed_hydra_tenant_contextiq9.sql`
-8. `supabase/migrations/20260504_slack_user_scope_upgrade.sql`
+8. `supabase/migrations/20260504_authenticated_role_permissions.sql`
+9. `supabase/migrations/20260504_live_workspace_demo_purge.sql`
+10. `supabase/migrations/20260504_slack_user_scope_upgrade.sql`
+11. `supabase/migrations/20260505_workspace_context_pins.sql`
 
 Required API values:
 
@@ -112,6 +115,14 @@ Verify end-to-end:
 7. Activity/Audit shows timeline events, action executions, and sync runs.
 8. Hydra-backed memories still render in rail and generated outputs.
 9. Provider readiness reflects `connected` vs `pending_approval`.
+10. Run `npm run verify:rollout` from a machine that has production env vars loaded.
+
+Rollout verifier checks:
+
+- public app and sign-in routes respond without server errors
+- authenticated workspace routes at least redirect or load cleanly
+- critical Supabase tables exist in the production schema cache
+- `workspace_context_pins` is present so Recent Context pinning works in live
 
 ## 8) Post-Deploy Security Checks
 
