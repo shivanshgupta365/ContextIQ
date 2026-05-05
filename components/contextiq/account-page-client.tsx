@@ -15,6 +15,7 @@ import {
 } from "lucide-react";
 
 import { ContextRail } from "@/components/contextiq/context-rail";
+import { EntityPinButton } from "@/components/contextiq/entity-pin-button";
 import { CreateActivityForm } from "@/components/forms/create-activity-form";
 import { CreateContactForm } from "@/components/forms/create-contact-form";
 import { CreateNoteForm } from "@/components/forms/create-note-form";
@@ -153,12 +154,16 @@ export function AccountPageClient({
   workspaceId,
   allAccounts,
   initialData,
+  initialSelectedContactId = null,
 }: {
   workspaceId: string;
   allAccounts: Account[];
   initialData: AccountPageData;
+  initialSelectedContactId?: string | null;
 }) {
-  const [selectedContactId, setSelectedContactId] = useState<string | null>(null);
+  const [selectedContactId, setSelectedContactId] = useState<string | null>(
+    initialSelectedContactId,
+  );
   const [prompt, setPrompt] = useState("");
   const [isGenerating, startTransition] = useTransition();
   const [result, setResult] = useState<ComposerResult | null>(
@@ -216,7 +221,7 @@ export function AccountPageClient({
       <div className="min-w-0 flex-1 overflow-y-auto">
         <div className="mx-auto max-w-4xl px-10 py-12">
         <div className="mb-12">
-          <div className="mb-5 flex items-center gap-3">
+          <div className="mb-5 flex flex-wrap items-center gap-3">
             <Badge
               className={
                 initialData.account.stage === "at_risk"
@@ -228,6 +233,16 @@ export function AccountPageClient({
             </Badge>
             <Badge>Priority: {initialData.account.priority}</Badge>
             <Badge>ARR: {formatCurrency(initialData.account.arr_estimate)}</Badge>
+            <EntityPinButton
+              workspaceId={workspaceId}
+              entityType="account"
+              entityId={initialData.account.id}
+              title={initialData.account.name}
+              subtitle={[
+                initialData.account.domain,
+                initialData.account.owner_name,
+              ].filter(Boolean).join(" • ") || null}
+            />
           </div>
           <h1 className="mb-3 text-[40px] font-extrabold leading-none tracking-tight text-[#0F172A]">
             {initialData.account.name}
@@ -261,36 +276,44 @@ export function AccountPageClient({
               const isSelected = selectedContactId === contact.id;
 
               return (
-                <button
-                  key={contact.id}
-                  onClick={() => setSelectedContactId(isSelected ? null : contact.id)}
-                  className={`-ml-4 flex items-center gap-4 rounded-2xl p-4 text-left transition-all ${
-                    isSelected
-                      ? "bg-slate-50 ring-1 ring-slate-300 shadow-[0_4px_12px_rgba(15,23,42,0.04)]"
-                      : "hover:bg-slate-50"
-                  }`}
-                >
-                  <div
-                    className={`flex h-14 w-14 items-center justify-center rounded-full border text-[15px] font-bold shadow-sm transition-all ${
+                <div key={contact.id} className="-ml-4 flex items-start gap-3">
+                  <button
+                    onClick={() => setSelectedContactId(isSelected ? null : contact.id)}
+                    className={`flex items-center gap-4 rounded-2xl p-4 text-left transition-all ${
                       isSelected
-                        ? "border-[#0F172A] bg-[#0F172A] text-white"
-                        : "border-slate-200 bg-white text-slate-600"
+                        ? "bg-slate-50 ring-1 ring-slate-300 shadow-[0_4px_12px_rgba(15,23,42,0.04)]"
+                        : "hover:bg-slate-50"
                     }`}
                   >
-                    {isSelected ? <Check size={20} strokeWidth={3} /> : getInitials(contact.name)}
-                  </div>
-                  <div>
-                    <p className="text-[16px] font-bold leading-tight text-[#0F172A]">
-                      {contact.name}
-                    </p>
-                    <p className="mt-1 text-[14px] font-medium text-slate-500">
-                      {contact.title || "Stakeholder"}
-                    </p>
-                    <span className="mt-2.5 inline-block rounded border border-slate-200 bg-slate-100 px-2.5 py-1 text-[10px] font-bold uppercase tracking-widest text-slate-500">
-                      {(contact.role_type || "other").replaceAll("_", " ")}
-                    </span>
-                  </div>
-                </button>
+                    <div
+                      className={`flex h-14 w-14 items-center justify-center rounded-full border text-[15px] font-bold shadow-sm transition-all ${
+                        isSelected
+                          ? "border-[#0F172A] bg-[#0F172A] text-white"
+                          : "border-slate-200 bg-white text-slate-600"
+                      }`}
+                    >
+                      {isSelected ? <Check size={20} strokeWidth={3} /> : getInitials(contact.name)}
+                    </div>
+                    <div>
+                      <p className="text-[16px] font-bold leading-tight text-[#0F172A]">
+                        {contact.name}
+                      </p>
+                      <p className="mt-1 text-[14px] font-medium text-slate-500">
+                        {contact.title || "Stakeholder"}
+                      </p>
+                      <span className="mt-2.5 inline-block rounded border border-slate-200 bg-slate-100 px-2.5 py-1 text-[10px] font-bold uppercase tracking-widest text-slate-500">
+                        {(contact.role_type || "other").replaceAll("_", " ")}
+                      </span>
+                    </div>
+                  </button>
+                  <EntityPinButton
+                    workspaceId={workspaceId}
+                    entityType="contact"
+                    entityId={contact.id}
+                    title={contact.name}
+                    subtitle={[contact.email, contact.title].filter(Boolean).join(" • ") || null}
+                  />
+                </div>
               );
             })}
           </div>

@@ -3,7 +3,9 @@
 import { FormEvent, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 
+import { EntityCandidateLookup } from "@/components/contextiq/entity-candidate-lookup";
 import { createAccountAction } from "@/lib/actions/contextiq";
+import type { WorkspaceEntityCandidate } from "@/types";
 
 export function CreateAccountForm({ workspaceId }: { workspaceId: string }) {
   const router = useRouter();
@@ -16,6 +18,15 @@ export function CreateAccountForm({ workspaceId }: { workspaceId: string }) {
   const [arrEstimate, setArrEstimate] = useState("");
   const [ownerName, setOwnerName] = useState("");
   const [error, setError] = useState<string | null>(null);
+  const [lookupNotice, setLookupNotice] = useState<string | null>(null);
+
+  const applyAccountCandidate = (candidate: WorkspaceEntityCandidate) => {
+    setName(candidate.title);
+    setDomain(candidate.domain ?? "");
+    setLookupNotice(
+      "Prefilled from an existing synced account. Open its context from the lookup card if this is the same workspace record.",
+    );
+  };
 
   const handleSubmit = (event: FormEvent) => {
     event.preventDefault();
@@ -55,6 +66,21 @@ export function CreateAccountForm({ workspaceId }: { workspaceId: string }) {
           Add a live customer account to your workspace pipeline.
         </p>
       </div>
+      <div className="mb-5">
+        <EntityCandidateLookup
+          workspaceId={workspaceId}
+          title="Check synced accounts first"
+          subtitle="Search accounts already materialized from connected data before you add a new one."
+          placeholder="Search by account name, domain, owner, stage, or priority"
+          accountActionLabel="Prefill account"
+          onUseAccountCandidate={applyAccountCandidate}
+        />
+      </div>
+      {lookupNotice ? (
+        <div className="mb-4 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-[12px] font-medium text-amber-800">
+          {lookupNotice}
+        </div>
+      ) : null}
       <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
         <input
           required

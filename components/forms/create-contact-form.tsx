@@ -2,8 +2,9 @@
 
 import { FormEvent, useState, useTransition } from "react";
 
+import { EntityCandidateLookup } from "@/components/contextiq/entity-candidate-lookup";
 import { createContactAction } from "@/lib/actions/contextiq";
-import type { Account, Contact } from "@/types";
+import type { Account, Contact, WorkspaceEntityCandidate } from "@/types";
 
 export function CreateContactForm({
   workspaceId,
@@ -26,6 +27,30 @@ export function CreateContactForm({
   const [preferenceSummary, setPreferenceSummary] = useState("");
   const [importanceLevel, setImportanceLevel] = useState("medium");
   const [error, setError] = useState<string | null>(null);
+  const [lookupNotice, setLookupNotice] = useState<string | null>(null);
+  const [selectedCandidate, setSelectedCandidate] =
+    useState<WorkspaceEntityCandidate | null>(null);
+
+  const applyAccountCandidate = (candidate: WorkspaceEntityCandidate) => {
+    const nextAccountId = candidate.account_id ?? candidate.id;
+    setAccountId(nextAccountId);
+    setLookupNotice(`Attached ${candidate.title} as the target account for this contact.`);
+  };
+
+  const applyPersonCandidate = (candidate: WorkspaceEntityCandidate) => {
+    if (candidate.account_id) {
+      setAccountId(candidate.account_id);
+    }
+    setName(candidate.title);
+    setEmail(candidate.email ?? "");
+    setTitle(candidate.role_title ?? "");
+    setSelectedCandidate(candidate);
+    setLookupNotice(
+      candidate.contact_id
+        ? "Prefilled from an existing synced person/contact. Review before creating another contact record."
+        : "Prefilled from synced entity data.",
+    );
+  };
 
   const handleSubmit = (event: FormEvent) => {
     event.preventDefault();
@@ -49,6 +74,8 @@ export function CreateContactForm({
         setTitle("");
         setCommunicationStyle("");
         setPreferenceSummary("");
+        setLookupNotice(null);
+        setSelectedCandidate(null);
         onCreated?.(created);
       } catch (submitError) {
         setError(
@@ -71,12 +98,47 @@ export function CreateContactForm({
           Attach real stakeholders to the workspace account graph.
         </p>
       </div>
+      <div className="mb-5">
+        <EntityCandidateLookup
+          workspaceId={workspaceId}
+          title="Lookup synced entities first"
+          subtitle="Search accounts and people already pulled in from connected data, then attach the matching account or prefill the contact form."
+          placeholder="Search by account, person, email, title, or alias"
+          accountActionLabel="Attach account"
+          personActionLabel="Prefill contact"
+          onUseAccountCandidate={applyAccountCandidate}
+          onUsePersonCandidate={applyPersonCandidate}
+        />
+      </div>
+      {lookupNotice ? (
+        <div className="mb-4 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-[12px] font-medium text-amber-800">
+          <div>{lookupNotice}</div>
+          {selectedCandidate ? (
+            <div className="mt-2 flex items-center justify-between gap-3">
+              <span className="text-[11px] font-bold uppercase tracking-widest text-amber-700">
+                Prefill source: {selectedCandidate.title}
+              </span>
+              <button
+                type="button"
+                onClick={() => {
+                  setSelectedCandidate(null);
+                  setLookupNotice(null);
+                }}
+                className="rounded-md border border-amber-300 bg-white px-2 py-1 text-[10px] font-bold uppercase tracking-widest text-amber-700"
+              >
+                Clear
+              </button>
+            </div>
+          ) : null}
+        </div>
+      ) : null}
       <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
         <select
           value={accountId}
           onChange={(event) => setAccountId(event.target.value)}
           className="rounded-xl border border-slate-200 bg-slate-50/50 px-4 py-3 text-[14px] font-medium outline-none focus:border-[#2563EB] focus:bg-white md:col-span-2"
         >
+          {accounts.length === 0 ? <option value="">No accounts available</option> : null}
           {accounts.map((account) => (
             <option key={account.id} value={account.id}>
               {account.name}

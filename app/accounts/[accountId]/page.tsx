@@ -11,10 +11,17 @@ import {
 
 export default async function AccountRoute({
   params,
+  searchParams,
 }: {
   params: Promise<{ accountId: string }>;
+  searchParams?: Promise<{ contact?: string }>;
 }) {
   const { accountId } = await params;
+  const resolvedSearchParams = (await searchParams) ?? {};
+  const initialSelectedContactId =
+    typeof resolvedSearchParams.contact === "string"
+      ? resolvedSearchParams.contact
+      : null;
 
   const accountResult = await getAccountPageData(accountId).catch(() => null);
   if (!accountResult) {
@@ -43,6 +50,7 @@ export default async function AccountRoute({
         workspaceId={workspace.id}
         allAccounts={accounts}
         initialData={accountResult}
+        initialSelectedContactId={initialSelectedContactId}
       />
     </WorkspaceShell>
   );

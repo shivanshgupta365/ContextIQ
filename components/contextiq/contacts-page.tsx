@@ -1,6 +1,7 @@
 import Link from "next/link";
 import type { Route } from "next";
 
+import { EntityPinButton } from "@/components/contextiq/entity-pin-button";
 import { CreateContactForm } from "@/components/forms/create-contact-form";
 import { getInitials } from "@/lib/utils";
 import type { Account, Contact } from "@/types";
@@ -30,35 +31,46 @@ export function ContactsPage({
               const account = accounts.find((item) => item.id === contact.account_id);
 
               return (
-                <Link
+                <div
                   key={contact.id}
-                  href={`${basePath}/accounts/${contact.account_id}` as Route}
-                  className="group flex items-center gap-6 border-b border-slate-100 p-6 transition-colors hover:bg-slate-50 last:border-b-0"
+                  className="flex items-start gap-4 border-b border-slate-100 p-6 last:border-b-0"
                 >
-                  <div className="flex h-14 w-14 items-center justify-center rounded-full bg-slate-100 text-[14px] font-bold text-slate-700 shadow-sm transition-all group-hover:border group-hover:border-slate-200 group-hover:bg-white">
-                    {getInitials(contact.name)}
-                  </div>
-                  <div className="grid flex-1 grid-cols-1 items-center gap-6 md:grid-cols-3">
-                    <div>
-                      <p className="text-[16px] font-bold text-[#0F172A]">{contact.name}</p>
-                      <p className="text-[14px] font-medium text-slate-500">
-                        {contact.title || "Stakeholder"} <span className="mx-1.5 text-slate-300">•</span>
-                        {account?.name}
-                      </p>
+                  <Link
+                    href={`${basePath}/accounts/${contact.account_id}?contact=${encodeURIComponent(contact.id)}` as Route}
+                    className="group flex flex-1 items-center gap-6 transition-colors hover:bg-slate-50"
+                  >
+                    <div className="flex h-14 w-14 items-center justify-center rounded-full bg-slate-100 text-[14px] font-bold text-slate-700 shadow-sm transition-all group-hover:border group-hover:border-slate-200 group-hover:bg-white">
+                      {getInitials(contact.name)}
                     </div>
-                    <div className="md:col-span-2 flex items-center justify-between gap-4">
-                      <div className="max-w-md truncate rounded-lg border border-slate-200 bg-slate-50 px-4 py-2.5 text-[13px] font-medium text-slate-600">
-                        {contact.preference_summary ||
-                          contact.communication_style ||
-                          contact.role_type?.replaceAll("_", " ") ||
-                          "No preference summary yet"}
+                    <div className="grid flex-1 grid-cols-1 items-center gap-6 md:grid-cols-3">
+                      <div>
+                        <p className="text-[16px] font-bold text-[#0F172A]">{contact.name}</p>
+                        <p className="text-[14px] font-medium text-slate-500">
+                          {contact.title || "Stakeholder"} <span className="mx-1.5 text-slate-300">•</span>
+                          {account?.name}
+                        </p>
                       </div>
-                      <span className="rounded-lg border border-slate-200 px-4 py-2.5 text-[12px] font-bold uppercase tracking-widest text-slate-600 shadow-sm">
-                        View Context
-                      </span>
+                      <div className="md:col-span-2 flex items-center justify-between gap-4">
+                        <div className="max-w-md truncate rounded-lg border border-slate-200 bg-slate-50 px-4 py-2.5 text-[13px] font-medium text-slate-600">
+                          {contact.preference_summary ||
+                            contact.communication_style ||
+                            contact.role_type?.replaceAll("_", " ") ||
+                            "No preference summary yet"}
+                        </div>
+                        <span className="rounded-lg border border-slate-200 px-4 py-2.5 text-[12px] font-bold uppercase tracking-widest text-slate-600 shadow-sm">
+                          View Context
+                        </span>
+                      </div>
                     </div>
-                  </div>
-                </Link>
+                  </Link>
+                  <EntityPinButton
+                    workspaceId={workspaceId}
+                    entityType="contact"
+                    entityId={contact.id}
+                    title={contact.name}
+                    subtitle={[contact.email, account?.name].filter(Boolean).join(" • ") || null}
+                  />
+                </div>
               );
             })}
           </div>
