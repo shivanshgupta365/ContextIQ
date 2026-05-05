@@ -17,6 +17,7 @@ Create a Supabase project and apply migrations in this exact order:
 9. `supabase/migrations/20260504_live_workspace_demo_purge.sql`
 10. `supabase/migrations/20260504_slack_user_scope_upgrade.sql`
 11. `supabase/migrations/20260505_workspace_context_pins.sql`
+12. `supabase/migrations/20260505_workspace_context_pins_service_role_grants.sql`
 
 Required API values:
 
