@@ -24,6 +24,56 @@ interface HydraRecallInput {
   topK?: number;
 }
 
+type HydraAddMemoryResponse = {
+  memory_ids?: string[];
+  ids?: string[];
+  results?: Array<{
+    source_id?: string;
+    memory_id?: string;
+    id?: string;
+  }>;
+};
+
+type HydraRecallResponse = {
+  chunks?: Array<{
+    source_id?: string;
+    chunk_content?: string;
+    content?: string;
+    relevancy_score?: number;
+    score?: number;
+    metadata?: Record<string, unknown>;
+    document_metadata?: Record<string, unknown>;
+  }>;
+  memories?: Array<{
+    id?: string;
+    content?: string;
+    score?: number;
+    document_metadata?: Record<string, unknown>;
+  }>;
+  results?: Array<{
+    id?: string;
+    content?: string;
+    score?: number;
+    document_metadata?: Record<string, unknown>;
+  }>;
+};
+
+function normalizeRecallFilters(filters?: Record<string, unknown>) {
+  if (!filters) return undefined;
+
+  if (
+    "document_metadata" in filters ||
+    "metadata" in filters ||
+    "additional_metadata" in filters
+  ) {
+    return filters;
+  }
+
+  return {
+    document_metadata: filters,
+  };
+}
+
 async function hydraFetch<T>(path: string, init: RequestInit) {
   const env = getHydraEnv();
   const response = await fetch(`${env.HYDRADB_BASE_URL}${path}`, {
@@ -76,112 +126,108 @@ export async function addMemories(input: {
   tenantId: string;
   memories: HydraMemoryPayload[];
 }) {
-  return hydraFetch<{ memory_ids?: string[]; ids?: string[] }>(
-    "/add_memory",
+  const response = await hydraFetch<HydraAddMemoryResponse>(
+    "/memories/add_memory",
     {
       method: "POST",
       body: JSON.stringify({
         tenant_id: input.tenantId,
         memories: input.memories.map((memory) => ({
-          content: memory.content,
-          document_metadata: memory.metadata,
+          text: memory.content,
+          infer: false,
+          title:
+            typeof memory.metadata.entity_type === "string"
+              ? String(memory.metadata.entity_type)
+              : "memory",
+          additional_metadata: memory.metadata,
         })),
       }),
     },
   );
+
+  const responseIds =
+    response.results
+      ?.map((result) => result.source_id ?? result.memory_id ?? result.id)
+      .filter((value): value is string => typeof value === "string" && value.length > 0) ?? [];
+
+  return {
+    ...response,
+    memory_ids:
+      response.memory_ids && response.memory_ids.length > 0
+        ? response.memory_ids
+        : responseIds,
+    ids:
+      response.ids && response.ids.length > 0
+        ? response.ids
+        : responseIds,
+  };
 }
 
 export async function fullRecall(input: HydraRecallInput) {
-  const result = await hydraFetch<{
-    memories?: Array<{
-      id?: string;
-      content?: string;
-      score?: number;
-      document_metadata?: Record<string, unknown>;
-    }>;
-    results?: Array<{
-      id?: string;
-      content?: string;
-      score?: number;
-      document_metadata?: Record<string, unknown>;
-    }>;
-  }>("/full_recall", {
+  const result = await hydraFetch<HydraRecallResponse>("/recall/full_recall", {
     method: "POST",
     body: JSON.stringify({
       tenant_id: input.tenantId,
-      q: input.query,
       query: input.query,
-      top_k: input.topK ?? 6,
-      limit: input.topK ?? 6,
-      document_metadata: input.filters ?? {},
+      max_results: input.topK ?? 6,
+      metadata_filters: normalizeRecallFilters(input.filters),
     }),
   });
 
-  const rawMemories = result.memories ?? result.results ?? [];
+  const rawMemories =
+    result.chunks?.map((chunk) => ({
+      id: chunk.source_id,
+      content: chunk.chunk_content ?? chunk.content,
+      score: chunk.relevancy_score ?? chunk.score,
+      document_metadata:
+        chunk.metadata?.document_metadata && typeof chunk.metadata.document_metadata === "object"
+          ? (chunk.metadata.document_metadata as Record<string, unknown>)
+          : chunk.document_metadata ??
+            (chunk.metadata as Record<string, unknown> | undefined) ??
+            {},
+    })) ??
+    result.memories ??
+    result.results ??
+    [];
 
-  return rawMemories.map(
-    (memory): RecalledMemory => ({
+  return rawMemories.map((memory): RecalledMemory => {
+    const metadata = memory.document_metadata ?? {};
+
+    return {
       id: memory.id,
       content: memory.content ?? "",
       score: memory.score,
       metadata: {
-        workspace_id: String(memory.document_metadata?.workspace_id ?? ""),
-        account_id: String(memory.document_metadata?.account_id ?? ""),
-        contact_id:
-          memory.document_metadata?.contact_id == null
-            ? null
-            : String(memory.document_metadata.contact_id),
-        source_type: String(memory.document_metadata?.source_type ?? "memory"),
-        topic:
-          memory.document_metadata?.topic == null
-            ? null
-            : String(memory.document_metadata.topic),
+        workspace_id: String(metadata.workspace_id ?? ""),
+        account_id: String(metadata.account_id ?? ""),
+        contact_id: metadata.contact_id == null ? null : String(metadata.contact_id),
+        source_type: String(metadata.source_type ?? "memory"),
+        topic: metadata.topic == null ? null : String(metadata.topic),
         importance_level:
-          memory.document_metadata?.importance_level == null
-            ? null
-            : String(memory.document_metadata.importance_level),
-        stage:
-          memory.document_metadata?.stage == null
-            ? null
-            : String(memory.document_metadata.stage),
-        created_at: String(
-          memory.document_metadata?.created_at ?? new Date().toISOString(),
-        ),
-        created_by:
-          memory.document_metadata?.created_by == null
-            ? null
-            : String(memory.document_metadata.created_by),
-        entity_type: String(memory.document_metadata?.entity_type ?? "memory"),
-        account_name:
-          memory.document_metadata?.account_name == null
-            ? null
-            : String(memory.document_metadata.account_name),
-        contact_name:
-          memory.document_metadata?.contact_name == null
-            ? null
-            : String(memory.document_metadata.contact_name),
+          metadata.importance_level == null ? null : String(metadata.importance_level),
+        stage: metadata.stage == null ? null : String(metadata.stage),
+        created_at: String(metadata.created_at ?? new Date().toISOString()),
+        created_by: metadata.created_by == null ? null : String(metadata.created_by),
+        entity_type: String(metadata.entity_type ?? "memory"),
+        account_name: metadata.account_name == null ? null : String(metadata.account_name),
+        contact_name: metadata.contact_name == null ? null : String(metadata.contact_name),
         contact_role_type:
-          memory.document_metadata?.contact_role_type == null
-            ? null
-            : String(memory.document_metadata.contact_role_type),
+          metadata.contact_role_type == null ? null : String(metadata.contact_role_type),
         integration_source: inferIntegrationSourceForMemory({
-          topic:
-            memory.document_metadata?.topic == null
-              ? null
-              : String(memory.document_metadata.topic),
-          source_type: String(memory.document_metadata?.source_type ?? "memory"),
+          topic: metadata.topic == null ? null : String(metadata.topic),
+          source_type: String(metadata.source_type ?? "memory"),
           integration_source:
-            memory.document_metadata?.integration_source == null
+            metadata.integration_source == null
               ? null
-              : (String(memory.document_metadata.integration_source) as
+              : (String(metadata.integration_source) as
                   | "gmail"
                   | "linkedin"
                   | "outlook"
                   | "slack"),
         }),
       },
-    }),
-  );
+    };
+  });
 }
 
 export function buildNoteMemoryPayload(input: {
