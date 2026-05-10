@@ -21,6 +21,7 @@ import {
   upsertMessageProjection,
   upsertSearchIndexEntry,
 } from "@/lib/workspace/projections";
+import { upsertPersonRelationshipContext } from "@/lib/context/relationship-updater";
 
 function extractPossibleEmails(value: string) {
   const matches = value.match(/[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/gi) ?? [];
@@ -228,6 +229,34 @@ export async function syncWorkspaceSlackSignals(input: {
               slack_user_id: message.userId,
             },
           });
+
+          if (person) {
+            await upsertPersonRelationshipContext({
+              workspaceId: input.workspace.id,
+              userId: input.userId,
+              provider: "slack",
+              personId: person.id,
+              personEmail: matchedContact?.email ?? null,
+              personName: matchedContact?.name ?? null,
+              sourceObjectId: syncKey,
+              sourceUserId: message.userId,
+              conversationId: conversation.id,
+              accountId: matchedAccount?.id ?? null,
+              interactionAt: message.occurredAt,
+              content: message.text || "(empty Slack message)",
+              role: "participant",
+              sourceRefs: [
+                {
+                  source: "slack",
+                  ref_id: syncKey,
+                  label: `#${channel.name}`,
+                  occurred_at: message.occurredAt,
+                },
+              ],
+            }).catch((relationshipError) => {
+              console.error("Slack relationship context upsert failed", relationshipError);
+            });
+          }
 
           await upsertSearchIndexEntry({
             workspaceId: input.workspace.id,

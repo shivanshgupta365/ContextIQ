@@ -1,6 +1,7 @@
 import Link from "next/link";
 import type { Route } from "next";
 
+import { ActiveContextDebugPanel } from "@/components/contextiq/active-context-debug-panel";
 import { ContextRail } from "@/components/contextiq/context-rail";
 import { WorkspaceShell } from "@/components/contextiq/workspace-shell";
 import {
@@ -29,6 +30,7 @@ export default async function SettingsRoute() {
     ]);
 
   const { gmailStatus, linkedInStatus, outlookStatus, slackStatus } = integrationStatuses;
+  const isAdmin = context.membershipRole === "owner";
 
   const gmailConnected = Boolean(gmailStatus.connected);
   const linkedInConnected = Boolean(linkedInStatus.connected);
@@ -206,6 +208,8 @@ export default async function SettingsRoute() {
             </button>
           </form>
         </section>
+
+        {isAdmin ? <ActiveContextDebugPanel /> : null}
       </div>
     </WorkspaceShell>
   );

@@ -165,6 +165,7 @@ export const getWorkspaceContext = cache(async (): Promise<{
   userId: string;
   workspace: Workspace;
   profile: Profile;
+  membershipRole: "owner" | "member";
 }> => {
   const user = await requireSessionUser();
   const supabase = await getSupabaseServerClient();
@@ -179,7 +180,7 @@ export const getWorkspaceContext = cache(async (): Promise<{
 
   const { data: membership, error: membershipError } = await supabase
     .from("workspace_members")
-    .select("workspace:workspaces(*)")
+    .select("role,workspace:workspaces(*)")
     .eq("user_id", user.id)
     .limit(1)
     .single();
@@ -189,6 +190,10 @@ export const getWorkspaceContext = cache(async (): Promise<{
   return {
     userId: user.id,
     workspace: membership.workspace as Workspace,
+    membershipRole:
+      (membership.role as "owner" | "member" | null | undefined) === "owner"
+        ? "owner"
+        : "member",
     profile:
       (profile as Profile | null) ??
       ({

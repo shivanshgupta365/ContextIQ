@@ -7,7 +7,7 @@ import {
 } from "lucide-react";
 
 import { mapContextRailItems } from "@/lib/context-memory";
-import type { ContextMemoryType, RecalledMemory } from "@/types";
+import type { ActivePersonContextResponse, ContextMemoryType, RecalledMemory } from "@/types";
 
 const ICON_BY_TYPE: Record<
   ContextMemoryType,
@@ -21,12 +21,14 @@ const ICON_BY_TYPE: Record<
 
 export function ContextRail({
   memories,
+  activeContext,
   isLoading = false,
   subtitle,
   contextLabel,
   selectedContactId,
 }: {
   memories: RecalledMemory[];
+  activeContext?: ActivePersonContextResponse | null;
   isLoading?: boolean;
   subtitle?: string;
   contextLabel?: string | null;
@@ -37,7 +39,81 @@ export function ContextRail({
     selectedContactId,
   });
 
-  const resolvedSubtitle = subtitle ?? `${memories.length} relevant memories fetched`;
+  const resolvedSubtitle =
+    subtitle ??
+    (activeContext
+      ? activeContext.person
+        ? `${Math.max(activeContext.useful_memories.length, activeContext.source_refs.length)} relationship-aware evidence blocks`
+        : "Context built from live workspace evidence"
+      : `${memories.length} relevant memories fetched`);
+
+  const relationshipSections =
+    activeContext != null
+      ? [
+          {
+            title: "Person",
+            body: activeContext.person
+              ? [
+                  activeContext.person.display_name,
+                  activeContext.person.email,
+                  activeContext.person.role,
+                  activeContext.person.company,
+                ]
+                  .filter(Boolean)
+                  .join(" • ")
+              : "No resolved person for current context.",
+          },
+          {
+            title: "Relationship",
+            body:
+              activeContext.relationship_summary ??
+              "No explicit relationship summary has been generated yet.",
+          },
+          {
+            title: "Last interaction",
+            body:
+              activeContext.last_interactions[0]?.body ??
+              activeContext.timeline[0]?.body ??
+              "No recent interaction found.",
+          },
+          {
+            title: "Topics discussed",
+            body: activeContext.topics.length
+              ? activeContext.topics.join(" • ")
+              : "No clustered topics available.",
+          },
+          {
+            title: "Pending actions",
+            body: activeContext.pending_actions.length
+              ? activeContext.pending_actions.join(" • ")
+              : "No explicit pending actions found.",
+          },
+          {
+            title: "Useful memories",
+            body: activeContext.useful_memories.length
+              ? activeContext.useful_memories
+                  .slice(0, 3)
+                  .map((item) => item.body)
+                  .join(" • ")
+              : "No useful memory snippets available yet.",
+          },
+          {
+            title: "Source trail",
+            body: activeContext.source_refs.length
+              ? activeContext.source_refs
+                  .slice(0, 4)
+                  .map((sourceRef) => `${sourceRef.source}:${sourceRef.ref_id}`)
+                  .join(" • ")
+              : "No source references captured yet.",
+          },
+          {
+            title: "Suggested next step",
+            body:
+              activeContext.recommended_next_action ??
+              "Run a scoped sync and retry retrieval for stronger evidence.",
+          },
+        ]
+      : [];
 
   return (
     <aside className="z-10 flex h-full w-[340px] flex-shrink-0 flex-col border-l border-slate-200 bg-[#FDFDFD]">
@@ -58,6 +134,27 @@ export function ContextRail({
             <div className="mt-4 text-center text-[10px] font-bold uppercase tracking-widest text-slate-400">
               Fetching relevant context...
             </div>
+          </div>
+        ) : activeContext ? (
+          <div className="space-y-3">
+            {relationshipSections.map((section) => (
+              <div
+                key={section.title}
+                className="rounded-xl border border-slate-200 bg-white p-4 shadow-[0_2px_8px_rgba(15,23,42,0.04)]"
+              >
+                <p className="text-[10px] font-bold uppercase tracking-widest text-slate-500">
+                  {section.title}
+                </p>
+                <p className="mt-2 text-[13px] font-medium leading-relaxed text-slate-700">
+                  {section.body}
+                </p>
+              </div>
+            ))}
+            {activeContext.degraded ? (
+              <div className="rounded-xl border border-amber-200 bg-amber-50 p-3 text-[12px] font-medium text-amber-700">
+                Partial context mode: {activeContext.degraded_reason ?? "Hydra unavailable, using fallback evidence."}
+              </div>
+            ) : null}
           </div>
         ) : items.length > 0 ? (
           items.map((item) => {
@@ -107,7 +204,7 @@ export function ContextRail({
         )}
       </div>
       <div className="flex items-center justify-center gap-2 border-t border-slate-200 bg-[#FDFDFD] px-6 py-4 text-[10px] font-bold uppercase tracking-widest text-slate-400">
-        Grounded by HydraDB + workspace evidence
+        {activeContext ? "Relationship-aware context mode" : "Grounded by HydraDB + workspace evidence"}
       </div>
     </aside>
   );

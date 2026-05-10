@@ -16,6 +16,7 @@ import {
   ensurePersonProjection,
   upsertSearchIndexEntry,
 } from "@/lib/workspace/projections";
+import { upsertPersonRelationshipContext } from "@/lib/context/relationship-updater";
 import type {
   Account,
   Contact,
@@ -154,6 +155,39 @@ export async function syncWorkspaceLinkedInSignals(input: {
             sourceObjectId: contact.id,
           });
         }
+
+        await upsertPersonRelationshipContext({
+          workspaceId: input.workspace.id,
+          userId: input.userId,
+          provider: "linkedin",
+          personId: person.id,
+          personEmail: contact.email ?? null,
+          personName: contact.name,
+          sourceObjectId: contact.id,
+          sourceUserId: userInfo.sub ?? null,
+          sourceProfileUrl: contact.linkedin_url ?? null,
+          accountId: account.id,
+          interactionAt: new Date().toISOString(),
+          content: [
+            contact.name,
+            contact.title,
+            contact.linkedin_url,
+            `Synced by ${userInfo.name ?? "LinkedIn"}`,
+          ]
+            .filter(Boolean)
+            .join(" • "),
+          role: "profile",
+          sourceRefs: [
+            {
+              source: "linkedin",
+              ref_id: contact.id,
+              label: contact.linkedin_url ?? contact.name,
+              occurred_at: new Date().toISOString(),
+            },
+          ],
+        }).catch((relationshipError) => {
+          console.error("LinkedIn relationship context upsert failed", relationshipError);
+        });
 
         const summaryLines = [
           `LinkedIn URL: ${contact.linkedin_url}`,

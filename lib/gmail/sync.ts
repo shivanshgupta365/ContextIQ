@@ -22,6 +22,7 @@ import {
   upsertMessageProjection,
   upsertSearchIndexEntry,
 } from "@/lib/workspace/projections";
+import { upsertPersonRelationshipContext } from "@/lib/context/relationship-updater";
 
 const DEFAULT_GMAIL_QUERY = "in:anywhere newer_than:30d -in:spam -in:trash";
 
@@ -247,6 +248,33 @@ export async function syncWorkspaceGmailMessages(input: {
             label_ids: message.labelIds,
           },
         });
+
+        if (person) {
+          await upsertPersonRelationshipContext({
+            workspaceId: input.workspace.id,
+            userId: input.userId,
+            provider: "gmail",
+            personId: person.id,
+            personEmail: matchedContact?.email ?? null,
+            personName: matchedContact?.name ?? null,
+            sourceObjectId: message.id,
+            conversationId: conversation.id,
+            accountId: matchedAccount?.id ?? null,
+            interactionAt: occurredAt,
+            content: message.snippet || message.subject || "Gmail message context",
+            role: "participant",
+            sourceRefs: [
+              {
+                source: "gmail",
+                ref_id: message.id,
+                label: message.subject ?? "Gmail message",
+                occurred_at: occurredAt,
+              },
+            ],
+          }).catch((relationshipError) => {
+            console.error("Gmail relationship context upsert failed", relationshipError);
+          });
+        }
 
         await upsertSearchIndexEntry({
           workspaceId: input.workspace.id,

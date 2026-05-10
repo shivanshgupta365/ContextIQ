@@ -23,6 +23,7 @@ import {
   upsertMessageProjection,
   upsertSearchIndexEntry,
 } from "@/lib/workspace/projections";
+import { upsertPersonRelationshipContext } from "@/lib/context/relationship-updater";
 
 function extractDomain(email: string) {
   return normalizeDomain(email.split("@")[1] ?? "");
@@ -234,6 +235,33 @@ export async function syncWorkspaceOutlookMessages(input: {
             cc: message.cc,
           },
         });
+
+        if (person) {
+          await upsertPersonRelationshipContext({
+            workspaceId: input.workspace.id,
+            userId: input.userId,
+            provider: "outlook",
+            personId: person.id,
+            personEmail: matchedContact?.email ?? null,
+            personName: matchedContact?.name ?? null,
+            sourceObjectId: message.id,
+            conversationId: conversation.id,
+            accountId: matchedAccount?.id ?? null,
+            interactionAt: occurredAt,
+            content: message.snippet || message.subject || "Outlook message context",
+            role: "participant",
+            sourceRefs: [
+              {
+                source: "outlook",
+                ref_id: message.id,
+                label: message.subject ?? "Outlook message",
+                occurred_at: occurredAt,
+              },
+            ],
+          }).catch((relationshipError) => {
+            console.error("Outlook relationship context upsert failed", relationshipError);
+          });
+        }
 
         await upsertSearchIndexEntry({
           workspaceId: input.workspace.id,

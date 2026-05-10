@@ -30,6 +30,8 @@ import {
 } from "@/lib/hydradb/client";
 import { buildActionPrompt } from "@/lib/prompts/contextiq";
 import { getSupabaseServerClient } from "@/lib/supabase/server";
+import { getComposeContext } from "@/lib/context/service";
+import { resolvePersonIdentity } from "@/lib/context/resolver";
 import {
   createAccountSchema,
   createActivitySchema,
@@ -52,6 +54,7 @@ import {
   upsertDocumentProjection,
   upsertSearchIndexEntry,
 } from "@/lib/workspace/projections";
+import { upsertPersonRelationshipContext } from "@/lib/context/relationship-updater";
 import type {
   Account,
   ActivityRecord,
@@ -397,6 +400,43 @@ export async function createNoteAction(input: unknown) {
     console.error("Note search indexing failed", indexError);
   });
 
+  if (note.contact_id) {
+    const personLookup = await supabase
+      .from("people")
+      .select("id")
+      .eq("workspace_id", workspace.id)
+      .eq("contact_id", note.contact_id)
+      .order("updated_at", { ascending: false })
+      .limit(1)
+      .maybeSingle();
+
+    if (!personLookup.error && personLookup.data?.id) {
+      await upsertPersonRelationshipContext({
+        workspaceId: workspace.id,
+        userId,
+        provider: noteProvider,
+        personId: String(personLookup.data.id),
+        personEmail: (contact as Contact | null)?.email ?? null,
+        personName: (contact as Contact | null)?.name ?? null,
+        sourceObjectId: note.id,
+        accountId: note.account_id,
+        interactionAt: note.created_at,
+        content: note.content,
+        role: "author",
+        sourceRefs: [
+          {
+            source: noteProvider,
+            ref_id: note.id,
+            label: note.title ?? note.topic ?? "note",
+            occurred_at: note.created_at,
+          },
+        ],
+      }).catch((relationshipError) => {
+        console.error("Relationship memory update failed for note", relationshipError);
+      });
+    }
+  }
+
   revalidateWorkspaceSurfaces(values.accountId);
 
   return note;
@@ -505,6 +545,43 @@ export async function createActivityAction(input: unknown) {
     console.error("Activity search indexing failed", indexError);
   });
 
+  if (activity.contact_id) {
+    const personLookup = await supabase
+      .from("people")
+      .select("id")
+      .eq("workspace_id", workspace.id)
+      .eq("contact_id", activity.contact_id)
+      .order("updated_at", { ascending: false })
+      .limit(1)
+      .maybeSingle();
+
+    if (!personLookup.error && personLookup.data?.id) {
+      await upsertPersonRelationshipContext({
+        workspaceId: workspace.id,
+        userId,
+        provider: activityProvider,
+        personId: String(personLookup.data.id),
+        personEmail: (contact as Contact | null)?.email ?? null,
+        personName: (contact as Contact | null)?.name ?? null,
+        sourceObjectId: activity.id,
+        accountId: activity.account_id,
+        interactionAt: activity.occurred_at,
+        content: activity.description || activity.title,
+        role: "participant",
+        sourceRefs: [
+          {
+            source: activityProvider,
+            ref_id: activity.id,
+            label: activity.title,
+            occurred_at: activity.occurred_at,
+          },
+        ],
+      }).catch((relationshipError) => {
+        console.error("Relationship memory update failed for activity", relationshipError);
+      });
+    }
+  }
+
   revalidateWorkspaceSurfaces(values.accountId);
 
   return activity;
@@ -556,6 +633,53 @@ export async function runComposerAction(input: unknown): Promise<ComposerResult>
     6,
   );
 
+  const contextualMemories = [...scopedMemories];
+  if (selectedContact) {
+    const resolver = await resolvePersonIdentity({
+      workspaceId: workspace.id,
+      query: [selectedContact.name, selectedContact.email].filter(Boolean).join(" "),
+      accountId: pageData.account.id,
+      limit: 3,
+    }).catch(() => null);
+
+    if (resolver?.person_id) {
+      const composeContext = await getComposeContext({
+        workspaceId: workspace.id,
+        personId: resolver.person_id,
+        accountId: pageData.account.id,
+        draftIntent: values.actionType,
+      }).catch(() => null);
+
+      if (composeContext?.relationship_summary) {
+        contextualMemories.unshift({
+          id: `compose-${resolver.person_id}`,
+          content: composeContext.relationship_summary,
+          metadata: {
+            workspace_id: workspace.id,
+            account_id: pageData.account.id,
+            contact_id: values.contactId ?? null,
+            source_type: "relationship_memory",
+            topic: values.actionType,
+            importance_level: "high",
+            stage: pageData.account.stage,
+            created_at: new Date().toISOString(),
+            entity_type: "person",
+            account_name: pageData.account.name,
+            contact_name: selectedContact.name,
+            contact_role_type: selectedContact.role_type ?? null,
+            integration_source: composeContext.source_refs[0]?.source as
+              | "gmail"
+              | "linkedin"
+              | "outlook"
+              | "slack"
+              | null,
+          },
+          score: composeContext.confidence,
+        });
+      }
+    }
+  }
+
   const hasStructuredEvidence =
     pageData.notes.length > 0 || pageData.activities.length > 0 || pageData.contacts.length > 0;
 
@@ -571,7 +695,7 @@ export async function runComposerAction(input: unknown): Promise<ComposerResult>
     contacts: pageData.contacts,
     selectedContact,
     activities: pageData.activities,
-    memories: scopedMemories,
+    memories: contextualMemories.slice(0, 8),
     prompt: values.prompt || null,
   });
 
@@ -594,7 +718,7 @@ export async function runComposerAction(input: unknown): Promise<ComposerResult>
       action_type: values.actionType,
       prompt: values.prompt || null,
       output_text: generation.text,
-      recalled_memories_json: scopedMemories,
+      recalled_memories_json: contextualMemories.slice(0, 8),
       model_name: generation.model,
       created_by: userId,
     })
@@ -651,9 +775,9 @@ export async function runComposerAction(input: unknown): Promise<ComposerResult>
   return {
     output: {
       ...(data as GeneratedOutput),
-      recalled_memories_json: scopedMemories,
+      recalled_memories_json: contextualMemories.slice(0, 8),
     },
-    memories: scopedMemories,
+    memories: contextualMemories.slice(0, 8),
     warnings,
     degraded,
   };
@@ -710,6 +834,10 @@ export async function clearWorkspaceDataAction(formData: FormData) {
 
   for (const table of [
     "workspace_context_pins",
+    "relationship_edges",
+    "person_thread_links",
+    "relationship_memories",
+    "person_sources",
     "search_index_entries",
     "documents",
     "messages",

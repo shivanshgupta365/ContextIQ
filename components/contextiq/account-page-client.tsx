@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState, useTransition } from "react";
+import { useEffect, useMemo, useState, useTransition } from "react";
 import {
   Activity,
   ArrowRight,
@@ -25,6 +25,7 @@ import { runComposerAction } from "@/lib/actions/contextiq";
 import { formatCurrency, formatDateTime, formatRelativeDate, getInitials } from "@/lib/utils";
 import type {
   Account,
+  ActivePersonContextResponse,
   AccountPageData,
   ActivityRecord,
   ComposerResult,
@@ -180,6 +181,7 @@ export function AccountPageClient({
   const [timeline, setTimeline] = useState(initialData.timeline);
   const [memoryPool, setMemoryPool] = useState<RecalledMemory[]>(initialData.memory_rail);
   const [actionError, setActionError] = useState<string | null>(null);
+  const [activeContext, setActiveContext] = useState<ActivePersonContextResponse | null>(null);
 
   const selectedContact = useMemo(
     () => contacts.find((contact) => contact.id === selectedContactId) ?? null,
@@ -190,6 +192,38 @@ export function AccountPageClient({
     () => filterMemoriesForContact(memoryPool, selectedContactId, 6),
     [memoryPool, selectedContactId],
   );
+
+  useEffect(() => {
+    let cancelled = false;
+
+    const run = async () => {
+      const personQuery = selectedContact
+        ? [selectedContact.name, selectedContact.email].filter(Boolean).join(" ")
+        : initialData.account.name;
+
+      const response = await fetch("/api/context/active-person", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          person_query: personQuery,
+          account_id: initialData.account.id,
+          limit: 8,
+        }),
+      });
+      if (!response.ok) {
+        if (!cancelled) setActiveContext(null);
+        return;
+      }
+      const payload = (await response.json()) as ActivePersonContextResponse;
+      if (!cancelled) setActiveContext(payload);
+    };
+
+    void run();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [initialData.account.id, initialData.account.name, selectedContact]);
 
   const runAction = (actionType: GeneratedOutput["action_type"]) => {
     startTransition(async () => {
@@ -507,6 +541,7 @@ export function AccountPageClient({
 
       <ContextRail
         memories={displayedMemories}
+        activeContext={activeContext}
         isLoading={isGenerating}
         contextLabel={selectedContact?.name}
         selectedContactId={selectedContactId}
