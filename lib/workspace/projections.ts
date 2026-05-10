@@ -267,6 +267,165 @@ export async function ensureIdentityAlias(input: {
   );
 }
 
+export async function upsertPersonSource(input: {
+  workspaceId: string;
+  userId: string;
+  personId: string;
+  sourceProvider: IntegrationProvider;
+  sourceObjectId: string;
+  sourceUserId?: string | null;
+  sourceProfileUrl?: string | null;
+  sourceEmail?: string | null;
+  sourceDisplayName?: string | null;
+  lastSeenAt?: string | null;
+  normalizedPayload?: Record<string, unknown>;
+}) {
+  const supabase = getSupabaseAdminClient();
+
+  const dedupeKey = [
+    input.sourceProvider,
+    input.personId,
+    input.sourceUserId ?? input.sourceEmail ?? input.sourceObjectId,
+  ].join(":");
+
+  await supabase.from("person_sources").upsert(
+    {
+      workspace_id: input.workspaceId,
+      owner_user_id: input.userId,
+      person_id: input.personId,
+      source_provider: input.sourceProvider,
+      source_user_id: input.sourceUserId ?? null,
+      source_profile_url: input.sourceProfileUrl ?? null,
+      source_email: input.sourceEmail ?? null,
+      source_display_name: input.sourceDisplayName ?? null,
+      source_object_type: "person_source",
+      source_object_id: input.sourceObjectId,
+      dedupe_key: dedupeKey,
+      normalized_payload: input.normalizedPayload ?? {},
+      last_seen_at: input.lastSeenAt ?? new Date().toISOString(),
+      updated_at: new Date().toISOString(),
+    },
+    { onConflict: "workspace_id,dedupe_key" },
+  );
+}
+
+export async function upsertPersonThreadLink(input: {
+  workspaceId: string;
+  userId: string;
+  personId: string;
+  conversationId: string;
+  provider: IntegrationProvider;
+  sourceObjectId: string;
+  role?: string;
+  lastSeenAt?: string | null;
+  normalizedPayload?: Record<string, unknown>;
+}) {
+  const supabase = getSupabaseAdminClient();
+
+  await supabase.from("person_thread_links").upsert(
+    {
+      workspace_id: input.workspaceId,
+      owner_user_id: input.userId,
+      person_id: input.personId,
+      conversation_id: input.conversationId,
+      role: input.role ?? "participant",
+      source_provider: input.provider,
+      source_object_type: "person_thread_link",
+      source_object_id: input.sourceObjectId,
+      dedupe_key: `${input.provider}:person_thread:${input.personId}:${input.conversationId}`,
+      normalized_payload: input.normalizedPayload ?? {},
+      last_seen_at: input.lastSeenAt ?? new Date().toISOString(),
+      updated_at: new Date().toISOString(),
+    },
+    { onConflict: "workspace_id,dedupe_key" },
+  );
+}
+
+export async function upsertRelationshipMemory(input: {
+  workspaceId: string;
+  userId: string;
+  personId: string;
+  provider: IntegrationProvider;
+  sourceObjectId: string;
+  summary: string;
+  relationshipType?: string;
+  status?: string;
+  sentiment?: string | null;
+  lastInteractionAt?: string | null;
+  topics?: string[];
+  pendingActions?: string[];
+  sourceRefs?: Array<Record<string, unknown>>;
+  hydraMemoryId?: string | null;
+  normalizedPayload?: Record<string, unknown>;
+}) {
+  const supabase = getSupabaseAdminClient();
+
+  await supabase.from("relationship_memories").upsert(
+    {
+      workspace_id: input.workspaceId,
+      owner_user_id: input.userId,
+      person_id: input.personId,
+      summary: input.summary,
+      relationship_type: input.relationshipType ?? "contact",
+      status: input.status ?? "active",
+      sentiment: input.sentiment ?? null,
+      last_interaction_at: input.lastInteractionAt ?? new Date().toISOString(),
+      topics: input.topics ?? [],
+      pending_actions: input.pendingActions ?? [],
+      source_refs: input.sourceRefs ?? [],
+      hydradb_memory_id: input.hydraMemoryId ?? null,
+      source_provider: input.provider,
+      source_object_type: "relationship_memory",
+      source_object_id: input.sourceObjectId,
+      dedupe_key: `${input.provider}:relationship:${input.personId}:${input.sourceObjectId}`,
+      normalized_payload: input.normalizedPayload ?? {},
+      synced_at: new Date().toISOString(),
+      updated_at: new Date().toISOString(),
+    },
+    { onConflict: "workspace_id,dedupe_key" },
+  );
+}
+
+export async function upsertRelationshipEdge(input: {
+  workspaceId: string;
+  userId: string;
+  provider: IntegrationProvider;
+  sourceObjectId: string;
+  fromEntityType: string;
+  fromEntityId: string;
+  edgeType: string;
+  toEntityType: string;
+  toEntityId: string;
+  weight?: number;
+  sourceRefs?: Array<Record<string, unknown>>;
+  normalizedPayload?: Record<string, unknown>;
+  lastSeenAt?: string | null;
+}) {
+  const supabase = getSupabaseAdminClient();
+
+  await supabase.from("relationship_edges").upsert(
+    {
+      workspace_id: input.workspaceId,
+      owner_user_id: input.userId,
+      from_entity_type: input.fromEntityType,
+      from_entity_id: input.fromEntityId,
+      edge_type: input.edgeType,
+      to_entity_type: input.toEntityType,
+      to_entity_id: input.toEntityId,
+      weight: input.weight ?? 1,
+      source_refs: input.sourceRefs ?? [],
+      source_provider: input.provider,
+      source_object_type: "relationship_edge",
+      source_object_id: input.sourceObjectId,
+      dedupe_key: `${input.provider}:edge:${input.fromEntityType}:${input.fromEntityId}:${input.edgeType}:${input.toEntityType}:${input.toEntityId}`,
+      normalized_payload: input.normalizedPayload ?? {},
+      last_seen_at: input.lastSeenAt ?? new Date().toISOString(),
+      updated_at: new Date().toISOString(),
+    },
+    { onConflict: "workspace_id,dedupe_key" },
+  );
+}
+
 export async function ensureConversationProjection(input: {
   workspaceId: string;
   userId: string;

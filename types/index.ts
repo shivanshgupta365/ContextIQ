@@ -605,6 +605,109 @@ export interface CommandSearchResponse {
   memories: RecalledMemory[];
 }
 
+export type RetrievalMode =
+  | "semantic_search"
+  | "person_context"
+  | "thread_context"
+  | "workspace_summary";
+
+export interface PersonResolverMatch {
+  person_id: string;
+  display_name: string;
+  email: string | null;
+  confidence: number;
+  sources: string[];
+}
+
+export interface PersonResolverResult {
+  person_id: string | null;
+  confidence: number;
+  matches: PersonResolverMatch[];
+  explain: string[];
+}
+
+export interface ActiveContextSourceRef {
+  source: string;
+  ref_id: string;
+  label?: string | null;
+  occurred_at?: string | null;
+}
+
+export interface ActiveContextSection {
+  title: string;
+  body: string;
+}
+
+export interface ActivePersonContextResponse {
+  context_mode: "person_context";
+  confidence: number;
+  person: {
+    person_id: string;
+    display_name: string;
+    email: string | null;
+    role: string | null;
+    company: string | null;
+  } | null;
+  resolver: PersonResolverResult;
+  relationship_summary: string | null;
+  last_interactions: ActiveContextSection[];
+  topics: string[];
+  pending_actions: string[];
+  source_refs: ActiveContextSourceRef[];
+  timeline: ActiveContextSection[];
+  useful_memories: ActiveContextSection[];
+  recommended_next_action: string | null;
+  debug: Record<string, unknown>;
+  degraded?: boolean;
+  degraded_reason?: string | null;
+}
+
+export interface ThreadContextResponse {
+  context_mode: "thread_context";
+  confidence: number;
+  thread: {
+    conversation_id: string;
+    channel: string;
+    subject: string | null;
+    last_message_at: string | null;
+  } | null;
+  participants: PersonResolverMatch[];
+  timeline: ActiveContextSection[];
+  source_refs: ActiveContextSourceRef[];
+  degraded?: boolean;
+  degraded_reason?: string | null;
+}
+
+export interface ComposeContextResponse {
+  context_mode: "person_context";
+  confidence: number;
+  person: ActivePersonContextResponse["person"];
+  relationship_summary: string | null;
+  tone_hints: string[];
+  pending_actions: string[];
+  recent_quotes: string[];
+  source_refs: ActiveContextSourceRef[];
+  degraded?: boolean;
+  degraded_reason?: string | null;
+}
+
+export interface MeetingContextResponse {
+  context_mode: "thread_context";
+  confidence: number;
+  meeting: {
+    meeting_id: string;
+    topic: string;
+    starts_at: string | null;
+    ends_at: string | null;
+  } | null;
+  attendees: PersonResolverMatch[];
+  relationship_summary: string | null;
+  agenda_hints: string[];
+  source_refs: ActiveContextSourceRef[];
+  degraded?: boolean;
+  degraded_reason?: string | null;
+}
+
 export interface WorkspaceRecentContext {
   entity_type: "account" | "contact";
   entity_id: string;
