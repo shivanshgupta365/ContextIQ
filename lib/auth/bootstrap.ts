@@ -1,8 +1,25 @@
-import { slugify } from "@/lib/utils";
-import { ensureHydraTenant } from "@/lib/hydradb/client";
 import { getHydraEnv } from "@/lib/env";
+import { ensureHydraTenant } from "@/lib/hydradb/client";
 import { getSupabaseAdminClient } from "@/lib/supabase/admin";
+import { slugify } from "@/lib/utils";
 import type { Workspace } from "@/types";
+
+function isUniqueViolation(error: unknown) {
+  return (error as { code?: string } | null)?.code === "23505";
+}
+
+async function readExistingWorkspaceForUser(input: { userId: string }) {
+  const supabase = getSupabaseAdminClient();
+  const { data } = await supabase
+    .from("workspace_members")
+    .select("workspace:workspaces(*)")
+    .eq("user_id", input.userId)
+    .order("created_at", { ascending: true })
+    .limit(1)
+    .maybeSingle();
+
+  return (data?.workspace as Workspace | null) ?? null;
+}
 
 export async function bootstrapUserWorkspace(params: {
   userId: string;
@@ -27,55 +44,83 @@ export async function bootstrapUserWorkspace(params: {
   if (profileError && params.userSupabaseClient) {
     const code = (profileError as { code?: string } | null)?.code;
     if (code === "42501") {
-      const fallbackResult = await params.userSupabaseClient
-        .from("profiles")
-        .upsert(profilePayload);
+      const fallbackResult = await params.userSupabaseClient.from("profiles").upsert(profilePayload);
       profileError = fallbackResult.error ?? null;
     }
   }
 
   if (profileError) throw profileError;
 
-  const { data: existingMembership } = await supabase
-    .from("workspace_members")
-    .select("workspace:workspaces(*)")
-    .eq("user_id", params.userId)
-    .limit(1)
-    .maybeSingle();
+  const existingWorkspace = await readExistingWorkspaceForUser({
+    userId: params.userId,
+  });
 
-  if (existingMembership?.workspace) {
-    return existingMembership.workspace as Workspace;
+  if (existingWorkspace) {
+    return existingWorkspace;
   }
 
   const workspaceName = "ContextIQ Workspace";
   const workspaceId = crypto.randomUUID();
   const fixedTenantId = env.HYDRADB_TENANT_ID?.trim() ?? "";
-  const hydraTenantId = fixedTenantId.length > 0 ? fixedTenantId : `workspace_${workspaceId}`;
-  try {
-    await ensureHydraTenant({
-      tenantId: hydraTenantId,
-      tenantName: workspaceName,
-      tenantDescription: `HydraDB tenant for ${params.email ?? params.userId}`,
-    });
-  } catch (error) {
-    // Do not block sign-in when HydraDB credentials are misconfigured.
-    console.error("Hydra tenant bootstrap failed; continuing without blocking auth", error);
+
+  if (process.env.NODE_ENV === "production" && fixedTenantId.length > 0) {
+    console.warn(
+      "HYDRADB_TENANT_ID is set in production. Ignoring fixed tenant override and using per-workspace tenant IDs.",
+    );
   }
 
-  const { data: workspace, error: workspaceError } = await supabase
-    .from("workspaces")
-    .insert({
-      id: workspaceId,
-      owner_id: params.userId,
-      name: workspaceName,
-      slug: slugify(`${workspaceName}-${workspaceId.slice(0, 6)}`),
-      description: "Live ContextIQ workspace",
-      hydradb_tenant_id: hydraTenantId,
-    })
-    .select("*")
-    .single();
+  const shouldUseFixedTenant = fixedTenantId.length > 0 && process.env.NODE_ENV !== "production";
+  const candidateTenantIds = shouldUseFixedTenant
+    ? [fixedTenantId, `workspace_${workspaceId}`]
+    : [`workspace_${workspaceId}`];
 
-  if (workspaceError) throw workspaceError;
+  let workspace: Workspace | null = null;
+  let lastWorkspaceError: unknown = null;
+
+  for (const hydraTenantId of candidateTenantIds) {
+    try {
+      await ensureHydraTenant({
+        tenantId: hydraTenantId,
+        tenantName: workspaceName,
+        tenantDescription: `HydraDB tenant for ${params.email ?? params.userId}`,
+      });
+    } catch (error) {
+      // Do not block sign-in when HydraDB credentials are misconfigured.
+      console.error("Hydra tenant bootstrap failed; continuing without blocking auth", error);
+    }
+
+    const insertResult = await supabase
+      .from("workspaces")
+      .insert({
+        id: workspaceId,
+        owner_id: params.userId,
+        name: workspaceName,
+        slug: slugify(`${workspaceName}-${workspaceId.slice(0, 6)}`),
+        description: "Live ContextIQ workspace",
+        hydradb_tenant_id: hydraTenantId,
+      })
+      .select("*")
+      .single();
+
+    if (!insertResult.error && insertResult.data) {
+      workspace = insertResult.data as Workspace;
+      break;
+    }
+
+    lastWorkspaceError = insertResult.error;
+    if (!isUniqueViolation(insertResult.error)) {
+      break;
+    }
+
+    const recovered = await readExistingWorkspaceForUser({ userId: params.userId });
+    if (recovered) {
+      return recovered;
+    }
+  }
+
+  if (!workspace) {
+    throw lastWorkspaceError ?? new Error("Failed to create workspace.");
+  }
 
   const { error: memberError } = await supabase.from("workspace_members").insert({
     workspace_id: workspaceId,
@@ -83,7 +128,13 @@ export async function bootstrapUserWorkspace(params: {
     role: "owner",
   });
 
-  if (memberError) throw memberError;
+  if (memberError) {
+    const recovered = await readExistingWorkspaceForUser({ userId: params.userId });
+    if (recovered) {
+      return recovered;
+    }
+    throw memberError;
+  }
 
-  return workspace as Workspace;
+  return workspace;
 }
