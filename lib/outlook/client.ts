@@ -1,4 +1,6 @@
-import { getMicrosoftOAuthEnv } from "@/lib/env";
+import { randomBytes } from "node:crypto";
+
+import { getAppEnv, getMicrosoftOAuthEnv } from "@/lib/env";
 import { fetchWithRetry } from "@/lib/integrations/http";
 
 interface GraphListMessagesResponse {
@@ -12,6 +14,85 @@ interface GraphListMessagesResponse {
     toRecipients?: Array<{ emailAddress?: { address?: string; name?: string } }>;
     ccRecipients?: Array<{ emailAddress?: { address?: string; name?: string } }>;
   }>;
+}
+
+function getMicrosoftRedirectUri() {
+  const env = getAppEnv();
+  return `${env.APP_BASE_URL.replace(/\/$/, "")}/auth/outlook/callback`;
+}
+
+export function buildMicrosoftOAuthState() {
+  return randomBytes(24).toString("hex");
+}
+
+export function buildOutlookConnectUrl(input: { state: string }) {
+  const env = getMicrosoftOAuthEnv();
+  if (!env.MICROSOFT_CLIENT_ID) {
+    throw new Error("Missing MICROSOFT_CLIENT_ID.");
+  }
+
+  const params = new URLSearchParams({
+    client_id: env.MICROSOFT_CLIENT_ID,
+    response_type: "code",
+    redirect_uri: getMicrosoftRedirectUri(),
+    response_mode: "query",
+    prompt: "select_account",
+    state: input.state,
+    scope: "openid profile email offline_access Mail.Read Calendars.Read User.Read",
+  });
+
+  return `https://login.microsoftonline.com/common/oauth2/v2.0/authorize?${params.toString()}`;
+}
+
+export async function exchangeMicrosoftCodeForToken(input: { code: string }) {
+  const env = getMicrosoftOAuthEnv();
+  if (!env.MICROSOFT_CLIENT_ID || !env.MICROSOFT_CLIENT_SECRET) {
+    throw new Error("Missing MICROSOFT_CLIENT_ID / MICROSOFT_CLIENT_SECRET.");
+  }
+
+  const body = new URLSearchParams({
+    client_id: env.MICROSOFT_CLIENT_ID,
+    client_secret: env.MICROSOFT_CLIENT_SECRET,
+    grant_type: "authorization_code",
+    code: input.code,
+    redirect_uri: getMicrosoftRedirectUri(),
+    scope: "openid profile email offline_access Mail.Read Calendars.Read User.Read",
+  });
+
+  const response = await fetchWithRetry(
+    "https://login.microsoftonline.com/common/oauth2/v2.0/token",
+    {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/x-www-form-urlencoded",
+      },
+      body: body.toString(),
+      cache: "no-store",
+    },
+  );
+
+  if (!response.ok) {
+    const text = await response.text();
+    throw new Error(`Microsoft token exchange failed: ${response.status} ${text}`);
+  }
+
+  const data = (await response.json()) as {
+    access_token: string;
+    refresh_token?: string;
+    expires_in?: number;
+    scope?: string;
+    token_type?: string;
+  };
+
+  return {
+    accessToken: data.access_token,
+    refreshToken: data.refresh_token ?? null,
+    expiresAt: data.expires_in
+      ? new Date(Date.now() + data.expires_in * 1000).toISOString()
+      : null,
+    tokenType: data.token_type ?? "Bearer",
+    scopes: data.scope ? data.scope.split(" ") : [],
+  };
 }
 
 function parseEmails(value: string | null | undefined) {

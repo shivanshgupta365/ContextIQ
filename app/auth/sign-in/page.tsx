@@ -18,7 +18,15 @@ export default async function SignInPage({
   const returnTo = params.next?.startsWith("/") ? params.next : "/overview";
   const user = await getSessionUser();
 
-  if (user && intent !== "gmail_connect" && intent !== "outlook_connect") {
+  if (intent === "gmail_connect") {
+    redirect((`/auth/gmail/start?next=${encodeURIComponent(returnTo)}`) as any);
+  }
+
+  if (intent === "outlook_connect") {
+    redirect((`/auth/outlook/start?next=${encodeURIComponent(returnTo)}`) as any);
+  }
+
+  if (user) {
     redirect("/overview");
   }
 

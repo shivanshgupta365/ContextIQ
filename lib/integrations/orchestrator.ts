@@ -69,7 +69,7 @@ export async function connectIntegrationProvider(
       ok: true,
       mode: "redirect",
       message: "Redirecting to Google OAuth.",
-      redirectUrl: `/auth/sign-in?intent=gmail_connect&next=${encodeURIComponent(safeNextPath)}`,
+      redirectUrl: `/auth/gmail/start?next=${encodeURIComponent(safeNextPath)}`,
     };
   }
 
@@ -101,7 +101,7 @@ export async function connectIntegrationProvider(
       ok: true,
       mode: "redirect",
       message: "Redirecting to Microsoft OAuth.",
-      redirectUrl: `/auth/sign-in?intent=outlook_connect&next=${encodeURIComponent(safeNextPath)}`,
+      redirectUrl: `/auth/outlook/start?next=${encodeURIComponent(safeNextPath)}`,
     };
   }
 

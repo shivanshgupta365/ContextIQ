@@ -1220,7 +1220,7 @@ export async function triggerSlackWorkspaceSyncAction() {
 }
 
 export async function connectGmailAction() {
-  return "/auth/sign-in?intent=gmail_connect&next=/overview";
+  return "/auth/gmail/start?next=/overview";
 }
 
 export async function connectLinkedInAction() {
@@ -1228,7 +1228,7 @@ export async function connectLinkedInAction() {
 }
 
 export async function connectOutlookAction() {
-  return "/auth/sign-in?intent=outlook_connect&next=/overview";
+  return "/auth/outlook/start?next=/overview";
 }
 
 export async function connectSlackAction() {

@@ -6,10 +6,7 @@ import { getPublicEnv } from "@/lib/env";
 import { upsertGmailIntegrationTokens } from "@/lib/gmail/integration-store";
 import { upsertIntegrationConnectionStatus } from "@/lib/integrations/connections";
 import { fetchMicrosoftProfile, refreshMicrosoftAccessToken } from "@/lib/outlook/client";
-import {
-  getValidOutlookAccessToken,
-  upsertOutlookIntegrationTokens,
-} from "@/lib/outlook/integration-store";
+import { upsertOutlookIntegrationTokens } from "@/lib/outlook/integration-store";
 
 export async function GET(request: NextRequest) {
   const env = getPublicEnv();
@@ -18,8 +15,20 @@ export async function GET(request: NextRequest) {
   const provider = request.nextUrl.searchParams.get("provider");
   const nextPath = request.nextUrl.searchParams.get("next");
   const safeNextPath = nextPath?.startsWith("/") ? nextPath : "/overview";
+  const isLegacyGmailConnect = intent === "gmail_connect";
+  const isLegacyOutlookConnect = intent === "outlook_connect";
   let response = NextResponse.redirect(new URL(safeNextPath, request.url));
   let providerSession: any = null;
+
+  if (isLegacyGmailConnect || isLegacyOutlookConnect) {
+    const integration = isLegacyGmailConnect ? "gmail" : "outlook";
+    return NextResponse.redirect(
+      new URL(
+        `${safeNextPath}?integration=${integration}&status=error&message=legacy_connect_flow`,
+        request.url,
+      ),
+    );
+  }
 
   const supabase = createServerClient(
     env.NEXT_PUBLIC_SUPABASE_URL,
@@ -90,54 +99,11 @@ export async function GET(request: NextRequest) {
   let recoveredScopes: string[] | undefined;
   let recoveredTokenType: string | null = null;
   let effectiveRefreshToken = providerRefreshToken ?? null;
-  const upsertProviderError = async (
-    integration: "gmail" | "outlook",
-    message: string,
-    permissionScope: string,
-  ) => {
-    await upsertIntegrationConnectionStatus({
-      workspaceId: workspace.id,
-      userId: user.id,
-      provider: integration,
-      status: "error",
-      permissionScope,
-      lastError: message,
-    });
-  };
-
-  if (intent === "outlook_connect" && provider !== "microsoft") {
-    await upsertProviderError(
-      "outlook",
-      "use_microsoft_for_outlook",
-      "openid profile email offline_access Mail.Read Calendars.Read User.Read",
-    );
-    return NextResponse.redirect(
-      new URL(
-        `${safeNextPath}?integration=outlook&status=error&message=use_microsoft_for_outlook`,
-        request.url,
-      ),
-    );
-  }
-
-  if (intent === "gmail_connect" && provider !== "google") {
-    await upsertProviderError(
-      "gmail",
-      "use_google_for_gmail",
-      "gmail.readonly gmail.send gmail.compose",
-    );
-    return NextResponse.redirect(
-      new URL(
-        `${safeNextPath}?integration=gmail&status=error&message=use_google_for_gmail`,
-        request.url,
-      ),
-    );
-  }
-
   if (
     !providerToken &&
     provider === "microsoft" &&
     providerRefreshToken &&
-    (intent === "outlook_connect" || intent === "sign_in")
+    intent === "sign_in"
   ) {
     try {
       const refreshed = await refreshMicrosoftAccessToken({
@@ -151,75 +117,17 @@ export async function GET(request: NextRequest) {
       effectiveRefreshToken = refreshed.refreshToken;
       providerRefreshToken = refreshed.refreshToken;
     } catch (error) {
-      await upsertProviderError(
-        "outlook",
-        error instanceof Error ? `provider_token_recovery_failed:${error.message}` : "provider_token_recovery_failed",
-        "openid profile email offline_access Mail.Read Calendars.Read User.Read",
+      console.error(
+        "Microsoft sign-in token recovery failed",
+        error instanceof Error ? error.message : error,
       );
     }
-  }
-
-  if (
-    !providerToken &&
-    provider === "microsoft" &&
-    intent === "outlook_connect"
-  ) {
-    try {
-      const existing = await getValidOutlookAccessToken({
-        workspaceId: workspace.id,
-        userId: user.id,
-      });
-      if (existing.accessToken) {
-        await upsertIntegrationConnectionStatus({
-          workspaceId: workspace.id,
-          userId: user.id,
-          provider: "outlook",
-          status: "connected",
-          permissionScope:
-            "openid profile email offline_access Mail.Read Calendars.Read User.Read",
-          lastError: null,
-        });
-        return NextResponse.redirect(
-          new URL(
-            `${safeNextPath}?integration=outlook&status=connected&message=existing_tokens_reused`,
-            request.url,
-          ),
-        );
-      }
-    } catch (error) {
-      await upsertProviderError(
-        "outlook",
-        error instanceof Error ? `existing_token_recovery_failed:${error.message}` : "existing_token_recovery_failed",
-        "openid profile email offline_access Mail.Read Calendars.Read User.Read",
-      );
-    }
-  }
-
-  if (!providerToken && provider === "microsoft" && intent === "outlook_connect") {
-    const detail = JSON.stringify({
-      reason: "missing_provider_token_after_reconciliation",
-      provider,
-      intent,
-      hasCode: Boolean(code),
-      hadProviderSession: Boolean(providerSession),
-      hadSessionToken: Boolean(activeSession?.provider_token),
-      hadSessionRefresh: Boolean(activeSession?.provider_refresh_token),
-      hadExchangeToken: Boolean((providerSession as { provider_token?: string } | null)?.provider_token),
-      hadExchangeRefresh: Boolean(
-        (providerSession as { provider_refresh_token?: string } | null)?.provider_refresh_token,
-      ),
-    });
-    await upsertProviderError(
-      "outlook",
-      detail,
-      "openid profile email offline_access Mail.Read Calendars.Read User.Read",
-    );
   }
 
   if (
     providerToken &&
     provider === "google" &&
-    (intent === "gmail_connect" || intent === "sign_in")
+    intent === "sign_in"
   ) {
     await upsertGmailIntegrationTokens({
       workspaceId: workspace.id,
@@ -246,7 +154,7 @@ export async function GET(request: NextRequest) {
   if (
     providerToken &&
     provider === "microsoft" &&
-    (intent === "outlook_connect" || intent === "sign_in")
+    intent === "sign_in"
   ) {
     const microsoftProfile = await fetchMicrosoftProfile({
       accessToken: providerToken,
@@ -281,28 +189,6 @@ export async function GET(request: NextRequest) {
       permissionScope: "openid profile email offline_access Mail.Read Calendars.Read User.Read",
       lastError: providerTokenRecovered ? null : undefined,
     });
-  }
-
-  if (
-    !providerToken &&
-    (intent === "gmail_connect" || intent === "outlook_connect")
-  ) {
-    const integration = intent === "gmail_connect" ? "gmail" : "outlook";
-    await upsertProviderError(
-      integration,
-      "missing_provider_token",
-      integration === "gmail"
-        ? "gmail.readonly gmail.send gmail.compose"
-        : "openid profile email offline_access Mail.Read Calendars.Read User.Read",
-    );
-    return NextResponse.redirect(
-      new URL(
-        `${safeNextPath}?integration=${integration}&status=error&message=${
-          integration === "outlook" ? "provider_token_recovery_failed" : "missing_provider_token"
-        }`,
-        request.url,
-      ),
-    );
   }
 
   return response;

@@ -113,7 +113,7 @@ export default async function SettingsRoute() {
                     <button className="h-9 rounded-md border border-slate-200 px-3 text-sm font-semibold text-slate-700 hover:bg-slate-50">Sync Gmail</button>
                   </form>
                 ) : null}
-                <Link href={"/auth/sign-in?intent=gmail_connect&next=/settings" as Route} className="inline-flex h-9 items-center rounded-md border border-slate-200 px-3 text-sm font-semibold text-slate-700 hover:bg-slate-50">
+                <Link href={"/auth/gmail/start?next=/settings" as Route} className="inline-flex h-9 items-center rounded-md border border-slate-200 px-3 text-sm font-semibold text-slate-700 hover:bg-slate-50">
                   {gmailConnected ? "Add Gmail account" : "Connect Gmail"}
                 </Link>
               </div>
@@ -173,7 +173,7 @@ export default async function SettingsRoute() {
                     <button className="h-9 rounded-md border border-slate-200 px-3 text-sm font-semibold text-slate-700 hover:bg-slate-50">Sync Outlook</button>
                   </form>
                 ) : null}
-                <Link href={"/auth/sign-in?intent=outlook_connect&next=/settings" as Route} className="inline-flex h-9 items-center rounded-md border border-slate-200 px-3 text-sm font-semibold text-slate-700 hover:bg-slate-50">
+                <Link href={"/auth/outlook/start?next=/settings" as Route} className="inline-flex h-9 items-center rounded-md border border-slate-200 px-3 text-sm font-semibold text-slate-700 hover:bg-slate-50">
                   {outlookConnected ? "Add Outlook account" : "Connect Outlook"}
                 </Link>
               </div>
