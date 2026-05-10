@@ -53,6 +53,9 @@ export async function GET(request: NextRequest) {
   const {
     data: { user },
   } = await supabase.auth.getUser();
+  const {
+    data: { session: activeSession },
+  } = await supabase.auth.getSession();
 
   if (!user) {
     return NextResponse.redirect(new URL("/auth/sign-in", request.url));
@@ -74,8 +77,14 @@ export async function GET(request: NextRequest) {
     userSupabaseClient: supabase,
   });
 
-  let providerToken = providerSession?.provider_token as string | undefined;
-  const providerRefreshToken = providerSession?.provider_refresh_token as string | undefined;
+  providerSession = providerSession ?? activeSession ?? null;
+
+  let providerToken =
+    (providerSession?.provider_token as string | undefined) ??
+    (activeSession?.provider_token as string | undefined);
+  let providerRefreshToken =
+    (providerSession?.provider_refresh_token as string | undefined) ??
+    (activeSession?.provider_refresh_token as string | undefined);
   let providerTokenRecovered = false;
   let recoveredExpiresAt: string | null = null;
   let recoveredScopes: string[] | undefined;
@@ -140,6 +149,7 @@ export async function GET(request: NextRequest) {
       recoveredScopes = refreshed.scopes;
       recoveredTokenType = refreshed.tokenType;
       effectiveRefreshToken = refreshed.refreshToken;
+      providerRefreshToken = refreshed.refreshToken;
     } catch (error) {
       await upsertProviderError(
         "outlook",
@@ -183,6 +193,27 @@ export async function GET(request: NextRequest) {
         "openid profile email offline_access Mail.Read Calendars.Read User.Read",
       );
     }
+  }
+
+  if (!providerToken && provider === "microsoft" && intent === "outlook_connect") {
+    const detail = JSON.stringify({
+      reason: "missing_provider_token_after_reconciliation",
+      provider,
+      intent,
+      hasCode: Boolean(code),
+      hadProviderSession: Boolean(providerSession),
+      hadSessionToken: Boolean(activeSession?.provider_token),
+      hadSessionRefresh: Boolean(activeSession?.provider_refresh_token),
+      hadExchangeToken: Boolean((providerSession as { provider_token?: string } | null)?.provider_token),
+      hadExchangeRefresh: Boolean(
+        (providerSession as { provider_refresh_token?: string } | null)?.provider_refresh_token,
+      ),
+    });
+    await upsertProviderError(
+      "outlook",
+      detail,
+      "openid profile email offline_access Mail.Read Calendars.Read User.Read",
+    );
   }
 
   if (
