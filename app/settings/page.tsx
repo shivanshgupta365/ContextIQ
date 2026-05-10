@@ -84,22 +84,39 @@ export default async function SettingsRoute() {
           <div className="mt-4 grid gap-3 sm:grid-cols-2">
             <div className="rounded-lg border border-slate-200 p-4">
               <div className="text-sm font-semibold text-slate-900">Gmail</div>
-              <div className="mt-1 text-xs text-slate-500">{gmailConnected ? "Connected" : "Not connected"}</div>
+              <div className="mt-1 text-xs text-slate-500">
+                {gmailConnected
+                  ? `Connected${gmailStatus.connected_count ? ` (${gmailStatus.connected_count}/5 accounts)` : ""}`
+                  : "Not connected"}
+              </div>
+              {gmailStatus.email ? (
+                <div className="mt-1 text-xs text-slate-500">Primary: {gmailStatus.email}</div>
+              ) : null}
               {gmailStatus.last_synced_at ? (
                 <div className="mt-1 text-xs text-slate-500">Last sync: {gmailStatus.last_synced_at}</div>
               ) : null}
               {gmailStatus.last_error ? (
                 <div className="mt-1 text-xs text-rose-600">Error: {gmailStatus.last_error}</div>
               ) : null}
-              {gmailConnected ? (
-                <form action={triggerGmailWorkspaceSyncAction} className="mt-3">
-                  <button className="h-9 rounded-md border border-slate-200 px-3 text-sm font-semibold text-slate-700 hover:bg-slate-50">Sync Gmail</button>
-                </form>
-              ) : (
-                <Link href={"/auth/sign-in?intent=gmail_connect&next=/settings" as Route} className="mt-3 inline-flex h-9 items-center rounded-md border border-slate-200 px-3 text-sm font-semibold text-slate-700 hover:bg-slate-50">
-                  Connect Gmail
+              {gmailStatus.accounts?.length ? (
+                <div className="mt-2 space-y-1">
+                  {gmailStatus.accounts.slice(0, 5).map((account) => (
+                    <div key={account.id} className="text-xs text-slate-500">
+                      Slot {account.slot}: {account.email ?? "Unknown"}{account.is_primary ? " (primary)" : ""}
+                    </div>
+                  ))}
+                </div>
+              ) : null}
+              <div className="mt-3 flex flex-wrap items-center gap-2">
+                {gmailConnected ? (
+                  <form action={triggerGmailWorkspaceSyncAction}>
+                    <button className="h-9 rounded-md border border-slate-200 px-3 text-sm font-semibold text-slate-700 hover:bg-slate-50">Sync Gmail</button>
+                  </form>
+                ) : null}
+                <Link href={"/auth/sign-in?intent=gmail_connect&next=/settings" as Route} className="inline-flex h-9 items-center rounded-md border border-slate-200 px-3 text-sm font-semibold text-slate-700 hover:bg-slate-50">
+                  {gmailConnected ? "Add Gmail account" : "Connect Gmail"}
                 </Link>
-              )}
+              </div>
             </div>
 
             <div className="rounded-lg border border-slate-200 p-4">
@@ -127,9 +144,13 @@ export default async function SettingsRoute() {
 
             <div className="rounded-lg border border-slate-200 p-4">
               <div className="text-sm font-semibold text-slate-900">Outlook</div>
-              <div className="mt-1 text-xs text-slate-500">{outlookConnected ? "Connected" : "Not connected"}</div>
+              <div className="mt-1 text-xs text-slate-500">
+                {outlookConnected
+                  ? `Connected${outlookStatus.connected_count ? ` (${outlookStatus.connected_count}/5 accounts)` : ""}`
+                  : "Not connected"}
+              </div>
               {outlookStatus.email ? (
-                <div className="mt-1 text-xs text-slate-500">Identity: {outlookStatus.email}</div>
+                <div className="mt-1 text-xs text-slate-500">Primary: {outlookStatus.email}</div>
               ) : null}
               {outlookStatus.last_synced_at ? (
                 <div className="mt-1 text-xs text-slate-500">Last sync: {outlookStatus.last_synced_at}</div>
@@ -137,15 +158,25 @@ export default async function SettingsRoute() {
               {outlookStatus.last_error ? (
                 <div className="mt-1 text-xs text-rose-600">Error: {outlookStatus.last_error}</div>
               ) : null}
-              {outlookConnected ? (
-                <form action={triggerOutlookWorkspaceSyncAction} className="mt-3">
-                  <button className="h-9 rounded-md border border-slate-200 px-3 text-sm font-semibold text-slate-700 hover:bg-slate-50">Sync Outlook</button>
-                </form>
-              ) : (
-                <Link href={"/auth/sign-in?intent=outlook_connect&next=/settings" as Route} className="mt-3 inline-flex h-9 items-center rounded-md border border-slate-200 px-3 text-sm font-semibold text-slate-700 hover:bg-slate-50">
-                  Connect Outlook
+              {outlookStatus.accounts?.length ? (
+                <div className="mt-2 space-y-1">
+                  {outlookStatus.accounts.slice(0, 5).map((account) => (
+                    <div key={account.id} className="text-xs text-slate-500">
+                      Slot {account.slot}: {account.email ?? "Unknown"}{account.is_primary ? " (primary)" : ""}
+                    </div>
+                  ))}
+                </div>
+              ) : null}
+              <div className="mt-3 flex flex-wrap items-center gap-2">
+                {outlookConnected ? (
+                  <form action={triggerOutlookWorkspaceSyncAction}>
+                    <button className="h-9 rounded-md border border-slate-200 px-3 text-sm font-semibold text-slate-700 hover:bg-slate-50">Sync Outlook</button>
+                  </form>
+                ) : null}
+                <Link href={"/auth/sign-in?intent=outlook_connect&next=/settings" as Route} className="inline-flex h-9 items-center rounded-md border border-slate-200 px-3 text-sm font-semibold text-slate-700 hover:bg-slate-50">
+                  {outlookConnected ? "Add Outlook account" : "Connect Outlook"}
                 </Link>
-              )}
+              </div>
             </div>
 
             <div className="rounded-lg border border-slate-200 p-4">

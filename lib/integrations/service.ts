@@ -34,11 +34,10 @@ export async function getWorkspaceProviderReadiness(params: {
         .eq("owner_user_id", params.userId),
       supabase
         .from("gmail_integrations")
-        .select("email,last_synced_at,sync_status,last_error")
+        .select("email,last_synced_at,sync_status,last_error,is_primary,integration_slot,updated_at")
         .eq("workspace_id", params.workspaceId)
         .eq("user_id", params.userId)
-        .eq("provider", "google")
-        .maybeSingle(),
+        .eq("provider", "google"),
       supabase
         .from("linkedin_integrations")
         .select("email,linkedin_sub,last_synced_at,sync_status,last_error")
@@ -48,11 +47,10 @@ export async function getWorkspaceProviderReadiness(params: {
         .maybeSingle(),
       supabase
         .from("outlook_integrations")
-        .select("email,last_synced_at,sync_status,last_error")
+        .select("email,last_synced_at,sync_status,last_error,is_primary,integration_slot,updated_at")
         .eq("workspace_id", params.workspaceId)
         .eq("user_id", params.userId)
-        .eq("provider", "outlook")
-        .maybeSingle(),
+        .eq("provider", "outlook"),
       supabase
         .from("slack_integrations")
         .select("email,team_name,team_id,slack_user_id,needs_reconnect,last_synced_at,sync_status,last_error")
@@ -85,16 +83,30 @@ export async function getWorkspaceProviderReadiness(params: {
       message: `Gmail status unavailable: ${gmailError.message}`,
     });
   }
-  if (gmail) {
-    const syncStatus = String(gmail.sync_status ?? "idle");
+  const gmailRows = ((gmail ?? []) as Array<Record<string, unknown>>).sort((a, b) => {
+    const aPrimary = Boolean(a.is_primary);
+    const bPrimary = Boolean(b.is_primary);
+    if (aPrimary !== bPrimary) return aPrimary ? -1 : 1;
+    return new Date(String(b.updated_at ?? 0)).getTime() - new Date(String(a.updated_at ?? 0)).getTime();
+  });
+  if (gmailRows.length > 0) {
+    const primary = gmailRows[0];
+    const syncStatus = String(primary.sync_status ?? "idle");
+    const accountCount = gmailRows.length;
     const status = syncStatus === "error" ? "error" : "connected";
+    const statusLabel = accountCount > 1 ? ` (${accountCount} accounts)` : "";
     oauthReadiness.set("gmail", {
       status,
-      last_synced_at: (gmail.last_synced_at as string | null) ?? null,
+      last_synced_at:
+        (gmailRows
+          .map((row) => row.last_synced_at as string | null)
+          .filter((value): value is string => Boolean(value))
+          .sort((a, b) => new Date(b).getTime() - new Date(a).getTime())[0] as string | undefined) ??
+        null,
       message:
         status === "error"
-          ? `Gmail error: ${String(gmail.last_error ?? "sync failed")}`
-          : `Connected${gmail.email ? ` as ${gmail.email}` : ""}`,
+          ? `Gmail error: ${String(primary.last_error ?? "sync failed")}`
+          : `Connected${primary.email ? ` as ${String(primary.email)}` : ""}${statusLabel}`,
     });
   }
 
@@ -125,16 +137,30 @@ export async function getWorkspaceProviderReadiness(params: {
       message: `Outlook status unavailable: ${outlookError.message}`,
     });
   }
-  if (outlook) {
-    const syncStatus = String(outlook.sync_status ?? "idle");
+  const outlookRows = ((outlook ?? []) as Array<Record<string, unknown>>).sort((a, b) => {
+    const aPrimary = Boolean(a.is_primary);
+    const bPrimary = Boolean(b.is_primary);
+    if (aPrimary !== bPrimary) return aPrimary ? -1 : 1;
+    return new Date(String(b.updated_at ?? 0)).getTime() - new Date(String(a.updated_at ?? 0)).getTime();
+  });
+  if (outlookRows.length > 0) {
+    const primary = outlookRows[0];
+    const syncStatus = String(primary.sync_status ?? "idle");
+    const accountCount = outlookRows.length;
     const status = syncStatus === "error" ? "error" : "connected";
+    const statusLabel = accountCount > 1 ? ` (${accountCount} accounts)` : "";
     oauthReadiness.set("outlook", {
       status,
-      last_synced_at: (outlook.last_synced_at as string | null) ?? null,
+      last_synced_at:
+        (outlookRows
+          .map((row) => row.last_synced_at as string | null)
+          .filter((value): value is string => Boolean(value))
+          .sort((a, b) => new Date(b).getTime() - new Date(a).getTime())[0] as string | undefined) ??
+        null,
       message:
         status === "error"
-          ? `Outlook error: ${String(outlook.last_error ?? "sync failed")}`
-          : `Connected${outlook.email ? ` as ${outlook.email}` : ""}`,
+          ? `Outlook error: ${String(primary.last_error ?? "sync failed")}`
+          : `Connected${primary.email ? ` as ${String(primary.email)}` : ""}${statusLabel}`,
     });
   }
 

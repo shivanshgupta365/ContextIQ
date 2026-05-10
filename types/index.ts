@@ -241,6 +241,8 @@ export interface GmailIntegration {
   workspace_id: string;
   user_id: string;
   provider: string;
+  integration_slot?: number;
+  is_primary?: boolean;
   email: string | null;
   access_token_encrypted: string;
   refresh_token_encrypted: string | null;
@@ -258,6 +260,16 @@ export interface GmailIntegration {
 export interface GmailIntegrationStatus {
   connected: boolean;
   email: string | null;
+  connected_count?: number;
+  accounts?: Array<{
+    id: string;
+    slot: number;
+    email: string | null;
+    is_primary: boolean;
+    last_synced_at: string | null;
+    sync_status: "idle" | "syncing" | "ok" | "error";
+    last_error: string | null;
+  }>;
   last_synced_at: string | null;
   sync_status: "idle" | "syncing" | "ok" | "error";
   last_error: string | null;
@@ -311,6 +323,8 @@ export interface OutlookIntegration {
   workspace_id: string;
   user_id: string;
   provider: string;
+  integration_slot?: number;
+  is_primary?: boolean;
   email: string | null;
   access_token_encrypted: string;
   refresh_token_encrypted: string | null;
@@ -328,6 +342,16 @@ export interface OutlookIntegration {
 export interface OutlookIntegrationStatus {
   connected: boolean;
   email: string | null;
+  connected_count?: number;
+  accounts?: Array<{
+    id: string;
+    slot: number;
+    email: string | null;
+    is_primary: boolean;
+    last_synced_at: string | null;
+    sync_status: "idle" | "syncing" | "ok" | "error";
+    last_error: string | null;
+  }>;
   last_synced_at: string | null;
   sync_status: "idle" | "syncing" | "ok" | "error";
   last_error: string | null;

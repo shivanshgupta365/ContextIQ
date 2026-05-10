@@ -5,6 +5,14 @@ import { syncWorkspaceGmailMessages } from "@/lib/gmail/sync";
 import { logIntegrationEvent } from "@/lib/integrations/telemetry";
 import { getSupabaseAdminClient } from "@/lib/supabase/admin";
 
+type GmailIntegrationSyncRow = {
+  workspace_id: string;
+  user_id: string;
+  is_primary: boolean | null;
+  updated_at: string | null;
+  workspaces: { id: string; hydradb_tenant_id: string } | null;
+};
+
 export async function GET(request: NextRequest) {
   try {
     assertAuthorizedCronRequest(request);
@@ -18,7 +26,7 @@ export async function GET(request: NextRequest) {
   const supabase = getSupabaseAdminClient();
   const { data, error } = await supabase
     .from("gmail_integrations")
-    .select("workspace_id,user_id,workspaces:workspace_id(id,hydradb_tenant_id)")
+    .select("workspace_id,user_id,is_primary,updated_at,workspaces:workspace_id(id,hydradb_tenant_id)")
     .eq("provider", "google");
 
   if (error) {
@@ -29,8 +37,35 @@ export async function GET(request: NextRequest) {
   let failed = 0;
   const details: Array<Record<string, unknown>> = [];
 
-  for (const row of data ?? []) {
-    const workspace = row.workspaces as { id: string; hydradb_tenant_id: string } | null;
+  const typedRows = (data ?? []) as GmailIntegrationSyncRow[];
+  const uniqueRows = new Map<string, GmailIntegrationSyncRow>();
+  for (const row of typedRows) {
+    const key = `${String(row.workspace_id)}:${String(row.user_id)}`;
+    const existing = uniqueRows.get(key);
+    if (!existing) {
+      uniqueRows.set(key, row);
+      continue;
+    }
+
+    const existingPrimary = Boolean(existing.is_primary);
+    const rowPrimary = Boolean(row.is_primary);
+    if (rowPrimary && !existingPrimary) {
+      uniqueRows.set(key, row);
+      continue;
+    }
+    if (rowPrimary === existingPrimary) {
+      const existingUpdated = new Date(String(existing.updated_at ?? 0)).getTime();
+      const rowUpdated = new Date(String(row.updated_at ?? 0)).getTime();
+      if (rowUpdated > existingUpdated) {
+        uniqueRows.set(key, row);
+      }
+    }
+  }
+
+  const rowsToSync = Array.from(uniqueRows.values());
+
+  for (const row of rowsToSync) {
+    const workspace = row.workspaces;
     if (!workspace?.id || !workspace.hydradb_tenant_id) {
       failed += 1;
       continue;
@@ -71,7 +106,7 @@ export async function GET(request: NextRequest) {
     detail: {
       processed,
       failed,
-      total: (data ?? []).length,
+      total: rowsToSync.length,
     },
   });
 
@@ -79,7 +114,7 @@ export async function GET(request: NextRequest) {
     ok: true,
     processed,
     failed,
-    total: (data ?? []).length,
+    total: rowsToSync.length,
     details,
   });
 }
